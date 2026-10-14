@@ -1,6 +1,6 @@
 //! Against a real Honk server: runs when HONK_URL and HONK_KEY are set (sdk/scripts/integration.sh
 //! starts a throwaway one), skipped otherwise. The key must not allow urgent priority.
-use honk_me::{Action, Category, Error, EventType, Honk, Message, Priority, Severity};
+use honk::{Action, Category, Error, EventType, Honk, Message, Priority, Severity};
 
 fn honk() -> Option<Honk> {
     match (std::env::var("HONK_URL"), std::env::var("HONK_KEY")) {
@@ -15,7 +15,7 @@ fn honk() -> Option<Honk> {
 }
 
 fn unique(prefix: &str) -> String {
-    format!("{prefix}-{}", honk_me::new_idempotency_key())
+    format!("{prefix}-{}", honk::new_idempotency_key())
 }
 
 #[tokio::test]

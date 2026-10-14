@@ -3,7 +3,7 @@ mod common;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use common::{KEY, Mock, Reply, client, closed_url};
-use honk_me::{Category, Error, EventType, Honk, Message, Priority, Severity};
+use honk::{Category, Error, EventType, Honk, Message, Priority, Severity};
 use serde_json::json;
 
 fn every_field() -> Message {
@@ -56,7 +56,7 @@ async fn sends_every_field_with_the_openapi_names_and_headers() {
     assert_eq!(r.header("accept"), "application/json");
     assert_eq!(
         r.header("user-agent"),
-        format!("honk-me-rust/{}", honk_me::VERSION)
+        format!("honk-me-rust/{}", honk::VERSION)
     );
     let key = r.header("idempotency-key");
     assert_eq!((key.len(), &key[14..15]), (36, "7"), "a UUIDv7: {key}");
@@ -113,7 +113,7 @@ async fn minimal_message_defaults_and_empty_fields() {
     assert_eq!(reqs[1].header("idempotency-key"), "k-1");
     assert_eq!(
         reqs[0].header("user-agent"),
-        format!("honk-me-rust/{} shop/2.1", honk_me::VERSION)
+        format!("honk-me-rust/{} shop/2.1", honk::VERSION)
     );
 }
 
@@ -186,6 +186,69 @@ async fn helpers_set_severity_event_type_and_group_key() {
             "info", "success", "warning", "error", "critical", "info", "success", "warning",
             "error", "critical"
         ]
+    );
+}
+
+#[tokio::test]
+async fn honk_uhoh_and_phew_send_exactly_what_send_problem_and_recovery_send() {
+    let mock = Mock::start(vec![]).await;
+    let honk = client(&mock).build().unwrap();
+    let order = Message::new("Someone bought 3 rubber chickens")
+        .title("New order")
+        .severity(Severity::BEEP)
+        .category(Category::Sales);
+    honk.honk(&order, "order-1042").await.unwrap();
+    honk.send(&order, "order-1042").await.unwrap();
+    honk.uhoh("kitchen/oven", "The cake is burning", "Oven at 260 °C")
+        .priority(Priority::High)
+        .idempotency_key("oven-1")
+        .await
+        .unwrap();
+    honk.problem("kitchen/oven", "The cake is burning", "Oven at 260 °C")
+        .priority(Priority::High)
+        .idempotency_key("oven-1")
+        .await
+        .unwrap();
+    honk.phew("kitchen/oven", "Cake saved", "Nobody needs to know.")
+        .idempotency_key("oven-2")
+        .await
+        .unwrap();
+    honk.recovery("kitchen/oven", "Cake saved", "Nobody needs to know.")
+        .idempotency_key("oven-2")
+        .await
+        .unwrap();
+    honk.honk(&order, None).await.unwrap();
+    honk.uhoh("q", "", "failing").send().await.unwrap();
+
+    let reqs = mock.requests();
+    assert_eq!(reqs.len(), 8);
+    for pair in reqs[..6].chunks(2) {
+        assert_eq!(pair[0].json(), pair[1].json());
+        assert_eq!(
+            pair[0].header("idempotency-key"),
+            pair[1].header("idempotency-key")
+        );
+    }
+    assert_eq!(reqs[0].header("idempotency-key"), "order-1042");
+    assert_eq!(
+        reqs[0].json(),
+        json!({ "title": "New order", "message": "Someone bought 3 rubber chickens", "severity": "success", "category": "sales" })
+    );
+    assert_eq!(
+        reqs[2].json(),
+        json!({ "title": "The cake is burning", "message": "Oven at 260 °C", "severity": "error", "priority": "high", "group_key": "kitchen/oven", "event_type": "problem" })
+    );
+    assert_eq!(
+        reqs[4].json(),
+        json!({ "title": "Cake saved", "message": "Nobody needs to know.", "severity": "success", "group_key": "kitchen/oven", "event_type": "recovery" })
+    );
+    // Without a key, honk() makes a fresh UUIDv7 like send(); uhoh() with no title lets the
+    // server derive one.
+    assert_eq!(reqs[6].header("idempotency-key").len(), 36);
+    assert_ne!(reqs[6].header("idempotency-key"), "order-1042");
+    assert_eq!(
+        reqs[7].json(),
+        json!({ "message": "failing", "severity": "error", "group_key": "q", "event_type": "problem" })
     );
 }
 

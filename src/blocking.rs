@@ -6,14 +6,14 @@
 //! client there.
 //!
 //! ```no_run
-//! use honk_me::blocking::Honk;
+//! use honk::blocking::Honk;
 //!
 //! let honk = Honk::from_env()?; // HONK_URL, HONK_KEY
 //! honk.beep("Backup finished", "nightly pg_dump took 42 s").send()?;
-//! honk.problem("db/backup", "Backup failed", "pg_dump exited with 1")
+//! honk.uhoh("db/backup", "Backup failed", "pg_dump exited with 1")
 //!     .idempotency_key("backup-2026-10-04")
 //!     .send()?;
-//! # Ok::<(), honk_me::Error>(())
+//! # Ok::<(), honk::Error>(())
 //! ```
 
 use std::sync::Arc;
@@ -71,6 +71,16 @@ impl Honk {
             .block_on(self.inner.send(message, idempotency_key))
     }
 
+    /// Honks: sends one event and blocks until Honk has stored it. The same method as
+    /// [`send`](Honk::send).
+    pub fn honk<'k>(
+        &self,
+        message: &Message,
+        idempotency_key: impl Into<Option<&'k str>>,
+    ) -> Result<Accepted> {
+        self.send(message, idempotency_key)
+    }
+
     fn pending(&self, p: crate::PendingSend<'_>) -> PendingSend<'_> {
         let (message, idempotency_key) = p.into_parts();
         PendingSend {
@@ -98,6 +108,28 @@ impl Honk {
         message: impl Into<String>,
     ) -> PendingSend<'_> {
         self.pending(self.inner.recovery(group_key, title, message))
+    }
+
+    /// Uh-oh: reports a problem for `group_key`. The same method as
+    /// [`problem`](Honk::problem).
+    pub fn uhoh(
+        &self,
+        group_key: impl Into<String>,
+        title: impl Into<String>,
+        message: impl Into<String>,
+    ) -> PendingSend<'_> {
+        self.problem(group_key, title, message)
+    }
+
+    /// Phew: reports that `group_key` recovered. The same method as
+    /// [`recovery`](Honk::recovery).
+    pub fn phew(
+        &self,
+        group_key: impl Into<String>,
+        title: impl Into<String>,
+        message: impl Into<String>,
+    ) -> PendingSend<'_> {
+        self.recovery(group_key, title, message)
     }
 
     /// A light honk (severity info).

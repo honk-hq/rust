@@ -5,7 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// restarts.
 ///
 /// ```
-/// let key = honk_me::new_idempotency_key();
+/// let key = honk::new_idempotency_key();
 /// assert_eq!(key.len(), 36);
 /// assert_eq!(&key[14..15], "7");
 /// ```

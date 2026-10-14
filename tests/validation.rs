@@ -1,4 +1,4 @@
-use honk_me::{
+use honk::{
     Action, Category, Defaults, Error, EventType, Message, MetadataValue, Priority, Severity,
     encode_message,
 };

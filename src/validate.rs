@@ -90,11 +90,11 @@ fn with_default<'a>(v: &'a Option<String>, d: &'a Option<String>) -> Option<&'a 
 /// and tests.
 ///
 /// ```
-/// use honk_me::{encode_message, Defaults, Message, Severity};
+/// use honk::{encode_message, Defaults, Message, Severity};
 ///
 /// let body = encode_message(&Message::new("Backup finished").severity(Severity::BEEP), &Defaults::new().source("nightly"), true)?;
 /// assert_eq!(body, r#"{"message":"Backup finished","severity":"success","source":"nightly"}"#);
-/// # Ok::<(), honk_me::Error>(())
+/// # Ok::<(), honk::Error>(())
 /// ```
 pub fn encode_message(message: &Message, defaults: &Defaults, validate: bool) -> Result<String> {
     let wire = Wire {

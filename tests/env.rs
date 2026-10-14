@@ -2,7 +2,7 @@
 mod common;
 
 use common::{KEY, Mock};
-use honk_me::{Error, Honk, Message};
+use honk::{Error, Honk, Message};
 
 #[tokio::test]
 async fn from_env_reads_the_honk_variables() {
