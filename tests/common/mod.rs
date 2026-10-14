@@ -232,8 +232,8 @@ async fn answer(mut socket: TcpStream, reply: Reply) {
 }
 
 /// A client for the mock with fast backoff.
-pub fn client(mock: &Mock) -> honk_me::HonkBuilder {
-    honk_me::Honk::builder()
+pub fn client(mock: &Mock) -> honk::HonkBuilder {
+    honk::Honk::builder()
         .url(&mock.url)
         .key(KEY)
         .backoff(Duration::from_millis(1), Duration::from_millis(5))

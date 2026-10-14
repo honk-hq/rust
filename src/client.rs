@@ -27,8 +27,8 @@ const MAX_ANSWER_BYTES: usize = 64 << 10;
 /// `blocking::Honk` (feature `blocking`) for synchronous code.
 ///
 /// ```no_run
-/// # async fn demo() -> honk_me::Result<()> {
-/// use honk_me::Honk;
+/// # async fn demo() -> honk::Result<()> {
+/// use honk::Honk;
 ///
 /// let honk = Honk::new("https://honk-me.app", std::env::var("HONK_KEY").unwrap_or_default())?;
 /// honk.beep("Backup finished", "nightly pg_dump took 42 s").await?;
@@ -67,7 +67,7 @@ impl std::fmt::Debug for Honk {
 ///
 /// ```
 /// use std::time::Duration;
-/// use honk_me::Honk;
+/// use honk::Honk;
 ///
 /// let honk = Honk::builder()
 ///     .url("https://honk-me.app")
@@ -78,7 +78,7 @@ impl std::fmt::Debug for Honk {
 ///     .source("billing")              // default source, environment, channel
 ///     .environment("production")
 ///     .build()?;
-/// # Ok::<(), honk_me::Error>(())
+/// # Ok::<(), honk::Error>(())
 /// ```
 #[derive(Debug, Clone)]
 #[must_use]
@@ -327,8 +327,8 @@ impl Honk {
     /// original id with `duplicate: true`.
     ///
     /// ```no_run
-    /// # async fn demo(honk: honk_me::Honk) -> honk_me::Result<()> {
-    /// use honk_me::{Message, Severity};
+    /// # async fn demo(honk: honk::Honk) -> honk::Result<()> {
+    /// use honk::{Message, Severity};
     ///
     /// let msg = Message::new("Ana asked for a quote: 3 rooms, 2 bathrooms")
     ///     .title("New quote request")
@@ -381,6 +381,29 @@ impl Honk {
             tokio::time::sleep(wait).await;
             attempt += 1;
         }
+    }
+
+    /// Honks: sends one event. The same method as [`send`](Honk::send), under its new name:
+    /// same arguments, same retries, same result.
+    ///
+    /// ```no_run
+    /// # async fn demo(honk: honk::Honk) -> honk::Result<()> {
+    /// use honk::{Category, Message, Severity};
+    ///
+    /// let order = Message::new("Someone bought 3 rubber chickens")
+    ///     .title("New order")
+    ///     .severity(Severity::BEEP)
+    ///     .category(Category::Sales);
+    /// honk.honk(&order, "order-1042").await?; // or None for a UUIDv7
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn honk<'k>(
+        &self,
+        message: &Message,
+        idempotency_key: impl Into<Option<&'k str>>,
+    ) -> Result<Accepted> {
+        self.send(message, idempotency_key).await
     }
 
     fn jitter(&self, attempt: u32) -> Duration {
@@ -470,7 +493,7 @@ impl Honk {
     /// to long (error); `.severity(…)` overrides it. An empty title lets the server derive one.
     ///
     /// ```no_run
-    /// # async fn demo(honk: honk_me::Honk) -> honk_me::Result<()> {
+    /// # async fn demo(honk: honk::Honk) -> honk::Result<()> {
     /// honk.problem("db/backup", "Backup failed", "pg_dump exited with 1").await?;
     /// honk.recovery("db/backup", "Backup OK", "pg_dump finished").await?;
     /// # Ok(())
@@ -500,13 +523,44 @@ impl Honk {
             .event_type(EventType::Recovery)
     }
 
+    /// Uh-oh: reports a problem for `group_key`. The same method as
+    /// [`problem`](Honk::problem): opens or continues the group's incident, a long honk by
+    /// default.
+    ///
+    /// ```no_run
+    /// # async fn demo(honk: honk::Honk) -> honk::Result<()> {
+    /// honk.uhoh("kitchen/oven", "The cake is burning", "Oven at 260 °C").await?;
+    /// honk.phew("kitchen/oven", "Cake saved", "Nobody needs to know.").await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn uhoh(
+        &self,
+        group_key: impl Into<String>,
+        title: impl Into<String>,
+        message: impl Into<String>,
+    ) -> PendingSend<'_> {
+        self.problem(group_key, title, message)
+    }
+
+    /// Phew: reports that `group_key` recovered. The same method as
+    /// [`recovery`](Honk::recovery): closes the group's open incident, a beep by default.
+    pub fn phew(
+        &self,
+        group_key: impl Into<String>,
+        title: impl Into<String>,
+        message: impl Into<String>,
+    ) -> PendingSend<'_> {
+        self.recovery(group_key, title, message)
+    }
+
     /// A light honk (severity info). An empty title lets the server derive one from the message.
     ///
     /// Every helper returns a [`PendingSend`]: chain more fields, then `.await` it.
     ///
     /// ```no_run
-    /// # async fn demo(honk: honk_me::Honk) -> honk_me::Result<()> {
-    /// use honk_me::Priority;
+    /// # async fn demo(honk: honk::Honk) -> honk::Result<()> {
+    /// use honk::Priority;
     ///
     /// honk.loud("Disk 91% full", "db-1 /var is at 91%")
     ///     .group_key("disk/db-1/var")
@@ -698,7 +752,7 @@ fn response_error(
     }))
 }
 
-/// A send prepared by a helper ([`Honk::loud`], [`Honk::problem`], …). Chain more fields, then
+/// A send prepared by a helper ([`Honk::loud`], [`Honk::uhoh`], …). Chain more fields, then
 /// `.await` it (or call [`send`](PendingSend::send)).
 #[must_use = "a PendingSend does nothing until it is awaited"]
 pub struct PendingSend<'a> {

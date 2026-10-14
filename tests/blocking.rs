@@ -6,8 +6,8 @@ mod common;
 use std::time::Duration;
 
 use common::{KEY, Mock, Reply};
-use honk_me::blocking::Honk;
-use honk_me::{Error, Message, Severity};
+use honk::blocking::Honk;
+use honk::{Error, Message, Severity};
 
 fn mock(script: Vec<Reply>) -> (tokio::runtime::Runtime, Mock) {
     let rt = tokio::runtime::Runtime::new().unwrap();
@@ -51,6 +51,46 @@ fn sends_retries_and_maps_errors_without_a_runtime() {
         "https://grafana.example.com/d/disk"
     );
     assert_eq!(reqs[2].json()["severity"], "critical");
+}
+
+#[test]
+fn honk_uhoh_and_phew_are_send_problem_and_recovery() {
+    let (_rt, mock) = mock(vec![]);
+    let honk = Honk::new(&mock.url, KEY).unwrap();
+    let order = Message::new("Someone bought 3 rubber chickens").severity(Severity::BEEP);
+    honk.honk(&order, "order-1042").unwrap();
+    honk.send(&order, "order-1042").unwrap();
+    honk.uhoh("kitchen/oven", "The cake is burning", "Oven at 260 °C")
+        .idempotency_key("oven-1")
+        .send()
+        .unwrap();
+    honk.problem("kitchen/oven", "The cake is burning", "Oven at 260 °C")
+        .idempotency_key("oven-1")
+        .send()
+        .unwrap();
+    honk.phew("kitchen/oven", "Cake saved", "Nobody needs to know.")
+        .idempotency_key("oven-2")
+        .send()
+        .unwrap();
+    honk.recovery("kitchen/oven", "Cake saved", "Nobody needs to know.")
+        .idempotency_key("oven-2")
+        .send()
+        .unwrap();
+
+    let reqs = mock.requests();
+    assert_eq!(reqs.len(), 6);
+    for pair in reqs.chunks(2) {
+        assert_eq!(pair[0].json(), pair[1].json());
+        assert_eq!(
+            pair[0].header("idempotency-key"),
+            pair[1].header("idempotency-key")
+        );
+    }
+    assert_eq!(reqs[0].json()["severity"], "success");
+    assert_eq!(reqs[2].json()["event_type"], "problem");
+    assert_eq!(reqs[2].json()["severity"], "error");
+    assert_eq!(reqs[4].json()["event_type"], "recovery");
+    assert_eq!(reqs[4].json()["group_key"], "kitchen/oven");
 }
 
 #[test]

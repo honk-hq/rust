@@ -4,6 +4,21 @@ All notable changes to the `honk-me` crate are documented here. The format follo
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] - 2026-10-14
+
+### Changed
+- **Breaking:** the library is now `honk` (it was `honk_me`): `use honk::Honk;`. The package on
+  crates.io is still `honk-me`, so `Cargo.toml` stays `honk-me = "0.3"`.
+
+  Upgrading from 0.2: bump the version and replace `honk_me::` with `honk::` in your code.
+  Nothing else changes.
+
+### Added
+- `honk(&message, idempotency_key)`, `uhoh(group_key, title, message)` and
+  `phew(group_key, title, message)` on `Honk` and on `blocking::Honk`.
+- `send`, `problem` and `recovery` stay, without deprecation warnings, as plain aliases of
+  `honk`, `uhoh` and `phew`: same arguments, same results.
+
 ## [0.2.0] - 2026-10-07
 
 ### Added

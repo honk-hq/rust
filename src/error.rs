@@ -1,7 +1,7 @@
 use std::fmt;
 use std::time::Duration;
 
-/// A `Result` whose error is [`honk_me::Error`](Error).
+/// A `Result` whose error is [`honk::Error`](Error).
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// Everything that can go wrong. Every variant except
@@ -9,8 +9,8 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 /// (status, API error code, field errors, the idempotency key that was used, attempts, …).
 ///
 /// ```
-/// # async fn demo(honk: honk_me::Honk, msg: honk_me::Message) {
-/// use honk_me::Error;
+/// # async fn demo(honk: honk::Honk, msg: honk::Message) {
+/// use honk::Error;
 ///
 /// match honk.send(&msg, "order-1042-failed").await {
 ///     Ok(accepted) => println!("stored as {}", accepted.id),

@@ -17,10 +17,10 @@
 //! # Quick start
 //!
 //! ```no_run
-//! use honk_me::{Honk, Message, Severity};
+//! use honk::{Honk, Message, Severity};
 //!
 //! #[tokio::main]
-//! async fn main() -> honk_me::Result<()> {
+//! async fn main() -> honk::Result<()> {
 //!     let honk = Honk::from_env()?; // HONK_URL, HONK_KEY
 //!
 //!     // The Honk scale: light, beep, loud, long, blast.
@@ -33,15 +33,18 @@
 //!         .group_key("requests/4812")
 //!         .url("https://shop.example.com/admin/requests/4812")
 //!         .metadata("rooms", 3);
-//!     let accepted = honk.send(&msg, "request-4812").await?;
+//!     let accepted = honk.honk(&msg, "request-4812").await?;
 //!     println!("stored as {}", accepted.id);
 //!
-//!     // Incidents: a problem opens one for its group, a recovery closes it.
-//!     honk.problem("db/backup", "Backup failed", "pg_dump exited with 1").await?;
-//!     honk.recovery("db/backup", "Backup OK", "pg_dump finished").await?;
+//!     // Incidents: uh-oh opens one for its group, phew closes it.
+//!     honk.uhoh("db/backup", "Backup failed", "pg_dump exited with 1").await?;
+//!     honk.phew("db/backup", "Backup OK", "pg_dump finished").await?;
 //!     Ok(())
 //! }
 //! ```
+//!
+//! [`Honk::send`], [`Honk::problem`] and [`Honk::recovery`] are the same methods as
+//! [`Honk::honk`], [`Honk::uhoh`] and [`Honk::phew`], under their older names.
 //!
 //! # Errors
 //!

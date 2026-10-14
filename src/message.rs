@@ -40,7 +40,7 @@ wire_enum! {
     /// [`Severity::BEEP`], [`Severity::LOUD`], [`Severity::LONG`], [`Severity::BLAST`].
     ///
     /// ```
-    /// use honk_me::Severity;
+    /// use honk::Severity;
     /// assert_eq!(Severity::LOUD, Severity::Warning);
     /// assert_eq!("Loud".parse::<Severity>().unwrap(), Severity::Warning);
     /// assert_eq!(Severity::BLAST.to_string(), "critical"); // always sent canonical
@@ -243,7 +243,7 @@ impl From<&String> for MetadataValue {
 /// A button on a message. Honk never opens the URL; the phone does, when you tap the button.
 ///
 /// ```
-/// use honk_me::{Action, Message};
+/// use honk::{Action, Message};
 ///
 /// let msg = Message::new("Emily Carter asked for a quote")
 ///     .action("Reply", "mailto:emily@example.com?subject=Your%20quote")
@@ -275,7 +275,7 @@ impl Action {
 /// count as unset.
 ///
 /// ```
-/// use honk_me::{Category, Message, Priority, Severity};
+/// use honk::{Category, Message, Priority, Severity};
 ///
 /// let msg = Message::new("db-1 /var is at 91%")
 ///     .title("Disk 91% full")

@@ -7,6 +7,23 @@
 Official Rust client for [Honk](https://honk-me.app), the inbox that turns events from your
 apps, jobs, scripts and CI into calm, grouped push notifications on your phone.
 
+```rust
+use honk::Honk;
+
+#[tokio::main]
+async fn main() -> honk::Result<()> {
+    let honk = Honk::from_env()?;
+
+    honk.uhoh("kitchen/oven", "The cake is burning", "Oven at 260 °C and climbing").await?;
+    // someone opens a window, someone else finds the oven gloves
+    honk.phew("kitchen/oven", "Cake saved", "Nobody needs to know.").await?;
+    Ok(())
+}
+```
+
+`uhoh` opens an incident for `kitchen/oven` and `phew` closes it: one group with a happy ending
+on your phone, not two unrelated alarms.
+
 - Async-first on Tokio, `reqwest` with rustls (no OpenSSL). A synchronous client with the
   `blocking` feature.
 - Retries with backoff, `Retry-After`, a total deadline and an idempotency key on every send,
@@ -24,7 +41,9 @@ cargo add honk-me
 cargo add tokio --features macros,rt-multi-thread   # if you don't have a runtime yet
 ```
 
-or, for synchronous code, `cargo add honk-me --features blocking`.
+or, for synchronous code, `cargo add honk-me --features blocking`. The package is `honk-me` on
+crates.io (`honk` was taken); in code the library is plain `honk`: `use honk::Honk;`. Coming
+from 0.2: replace `honk_me::` with `honk::`, nothing else changes.
 
 Create a project and an ingestion key at [honk-me.app](https://honk-me.app). Its
 *Integrations* page generates ready-to-paste code.
@@ -32,10 +51,10 @@ Create a project and an ingestion key at [honk-me.app](https://honk-me.app). Its
 ## Quick start
 
 ```rust
-use honk_me::Honk;
+use honk::Honk;
 
 #[tokio::main]
-async fn main() -> honk_me::Result<()> {
+async fn main() -> honk::Result<()> {
     let honk = Honk::from_env()?; // HONK_URL, HONK_KEY (+ HONK_SOURCE, HONK_ENVIRONMENT, HONK_CHANNEL)
     honk.beep("Backup finished", "nightly pg_dump took 42 s").await?;
     Ok(())
@@ -65,7 +84,7 @@ idempotency). `long` and `blast` push at least as `high` priority. `info()`, `su
 Every helper returns a `PendingSend`: chain more fields, then `.await` it.
 
 ```rust
-use honk_me::Priority;
+use honk::Priority;
 
 honk.loud("Disk 91% full", "db-1 /var is at 91%")
     .group_key("disk/db-1/var")
@@ -80,7 +99,7 @@ Give each request its own group (`requests/<id>`) and its own idempotency key. T
 customers never fold into one notification, and a retried webhook or job never buzzes twice.
 
 ```rust
-use honk_me::{Category, Message, Priority, Severity};
+use honk::{Category, Message, Priority, Severity};
 
 let msg = Message::new(format!("{} asked for a quote: {}", req.name, req.summary))
     .title("New quote request")
@@ -89,21 +108,26 @@ let msg = Message::new(format!("{} asked for a quote: {}", req.name, req.summary
     .category(Category::Customers)
     .group_key(format!("requests/{}", req.id))
     .url(format!("https://shop.example.com/admin/requests/{}", req.id)); // https only, "Open link"
-honk.send(&msg, format!("request-{}", req.id).as_str()).await?;
+honk.honk(&msg, format!("request-{}", req.id).as_str()).await?;
 ```
 
-## Problems and recoveries
+## Uh-oh and phew: problems and recoveries
 
-A problem opens an incident for its group key; a recovery closes it.
+`uhoh` reports a problem and opens an incident for its group key; `phew` reports the recovery
+and closes it.
 
 ```rust
-honk.problem("db/backup", "Backup failed", "pg_dump exited with 1").await?;
-honk.recovery("db/backup", "Backup OK", "pg_dump finished").await?;
+honk.uhoh("db/backup", "Backup failed", "pg_dump exited with 1").await?;
+honk.phew("db/backup", "Backup OK", "pg_dump finished").await?;
 ```
+
+`uhoh` is a long honk (error) by default and `phew` a beep (success); chain `.severity(…)` to
+change it. `send`, `problem` and `recovery` still work: they are `honk`, `uhoh` and `phew` under
+their 0.2 names, with no deprecation warning.
 
 ## Sending a message
 
-`send(&message, idempotency_key)` returns `Accepted { id, duplicate, received_at }` once Honk
+`honk(&message, idempotency_key)` returns `Accepted { id, duplicate, received_at }` once Honk
 has durably stored the event (`202`); that does not mean a push was delivered.
 
 | Field | Type | Notes |
@@ -188,9 +212,9 @@ Each variant except the last carries a `Failure` with `status`, `code`, `message
 `local`, `request_id`, `idempotency_key`, `attempts` and `retry_after`.
 
 ```rust
-use honk_me::Error;
+use honk::Error;
 
-match honk.send(&msg, "order-1042-failed").await {
+match honk.honk(&msg, "order-1042-failed").await {
     Ok(_) => {}
     Err(Error::Validation(f)) => tracing::error!(?f.fields, "a bug: don't retry"),
     Err(e) if e.is_retryable() => queue.retry_later(e.idempotency_key(), e.retry_after()),
@@ -201,12 +225,14 @@ match honk.send(&msg, "order-1042-failed").await {
 ## Blocking client
 
 ```rust
-// Cargo.toml: honk-me = { version = "0.2", features = ["blocking"] }
-use honk_me::blocking::Honk;
+// Cargo.toml: honk-me = { version = "0.3", features = ["blocking"] }
+use honk::Message;
+use honk::blocking::Honk;
 
 let honk = Honk::from_env()?;
 honk.beep("Backup finished", "nightly pg_dump took 42 s").send()?;
-honk.send(&honk_me::Message::new("Imported 1 204 rows"), None)?;
+honk.uhoh("db/backup", "Backup failed", "pg_dump exited with 1").send()?;
+honk.honk(&Message::new("Imported 1 204 rows"), None)?;
 ```
 
 It runs the async client on a private single-threaded Tokio runtime, with the same retries and
