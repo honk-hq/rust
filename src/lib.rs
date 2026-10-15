@@ -1,4 +1,4 @@
-//! The official Rust client for [Honk](https://honk-me.app): send events from your apps, jobs,
+//! The official Rust client for [Honk](https://honk-honk.app): send events from your apps, jobs,
 //! scripts and CI to your phone, as calm, grouped push notifications.
 //!
 //! - Async-first on Tokio and `reqwest` with rustls (no OpenSSL); a synchronous

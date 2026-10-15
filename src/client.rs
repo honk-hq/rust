@@ -30,7 +30,7 @@ const MAX_ANSWER_BYTES: usize = 64 << 10;
 /// # async fn demo() -> honk::Result<()> {
 /// use honk::Honk;
 ///
-/// let honk = Honk::new("https://honk-me.app", std::env::var("HONK_KEY").unwrap_or_default())?;
+/// let honk = Honk::new("https://honk-honk.app", std::env::var("HONK_KEY").unwrap_or_default())?;
 /// honk.beep("Backup finished", "nightly pg_dump took 42 s").await?;
 /// # Ok(())
 /// # }
@@ -70,7 +70,7 @@ impl std::fmt::Debug for Honk {
 /// use honk::Honk;
 ///
 /// let honk = Honk::builder()
-///     .url("https://honk-me.app")
+///     .url("https://honk-honk.app")
 ///     .key("honk_ab12cd34ef56_ABCDEFGHIJKLMNOPQRSTUVWXYZ012345")
 ///     .timeout(Duration::from_secs(3)) // per attempt (default 5 s)
 ///     .retries(2)                      // after the first attempt (default 4; 0 disables)
@@ -137,7 +137,7 @@ impl HonkBuilder {
         }
     }
 
-    /// The base address of the Honk server, e.g. `https://honk-me.app`.
+    /// The base address of the Honk server, e.g. `https://honk-honk.app`.
     pub fn url(mut self, url: impl Into<String>) -> Self {
         self.url = url.into();
         self
@@ -224,7 +224,7 @@ impl HonkBuilder {
         }
         if url.is_empty() {
             return Err(config(
-                "URL is required (the base address of your Honk server, e.g. https://honk-me.app; is HONK_URL set?)",
+                "URL is required (the base address of your Honk server, e.g. https://honk-honk.app; is HONK_URL set?)",
             ));
         }
         let lower = url.to_ascii_lowercase();
@@ -301,7 +301,7 @@ impl HonkBuilder {
 }
 
 impl Honk {
-    /// A client for `url` (e.g. `https://honk-me.app`) with a project ingestion key and every
+    /// A client for `url` (e.g. `https://honk-honk.app`) with a project ingestion key and every
     /// default. Fails with [`Error::InvalidConfiguration`] for a missing or malformed URL or key.
     pub fn new(url: impl Into<String>, key: impl Into<String>) -> Result<Honk> {
         HonkBuilder::new().url(url).key(key).build()

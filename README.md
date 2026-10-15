@@ -4,7 +4,7 @@
 [![crates.io](https://img.shields.io/crates/v/honk-me)](https://crates.io/crates/honk-me)
 [![docs.rs](https://img.shields.io/docsrs/honk-me)](https://docs.rs/honk-me)
 
-Official Rust client for [Honk](https://honk-me.app), the inbox that turns events from your
+Official Rust client for [Honk](https://honk-honk.app), the inbox that turns events from your
 apps, jobs, scripts and CI into calm, grouped push notifications on your phone.
 
 ```rust
@@ -45,7 +45,7 @@ or, for synchronous code, `cargo add honk-me --features blocking`. The package i
 crates.io (`honk` was taken); in code the library is plain `honk`: `use honk::Honk;`. Coming
 from 0.2: replace `honk_me::` with `honk::`, nothing else changes.
 
-Create a project and an ingestion key at [honk-me.app](https://honk-me.app). Its
+Create a project and an ingestion key at [honk-honk.app](https://honk-honk.app). Its
 *Integrations* page generates ready-to-paste code.
 
 ## Quick start
@@ -61,7 +61,7 @@ async fn main() -> honk::Result<()> {
 }
 ```
 
-Or explicitly: `Honk::new("https://honk-me.app", key)?`. A missing or malformed URL or key is
+Or explicitly: `Honk::new("https://honk-honk.app", key)?`. A missing or malformed URL or key is
 `Error::InvalidConfiguration`. `Honk` is cheap to clone: create one per application and share
 it, so connections are kept alive.
 
@@ -177,7 +177,7 @@ honk.light("New quote request", "Emily Carter asked for a quote: 3 rooms, 2 bath
 use std::time::Duration;
 
 let honk = Honk::builder()
-    .url("https://honk-me.app")
+    .url("https://honk-honk.app")
     .key(std::env::var("HONK_KEY").unwrap_or_default())
     .timeout(Duration::from_secs(5))   // per attempt
     .retries(4)                        // after the first attempt; 0 disables
@@ -253,7 +253,7 @@ crates.io with trusted publishing (see `CHANGELOG.md`).
 
 ## Links
 
-- [honk-me.app](https://honk-me.app): the Honk inbox (web, iPhone).
+- [honk-honk.app](https://honk-honk.app): the Honk inbox (web, iPhone).
 - [docs.rs/honk-me](https://docs.rs/honk-me): the API reference.
 - Other SDKs: [Node.js](https://github.com/honk-me/honk-node),
   [PHP / Laravel](https://github.com/honk-me/honk-php), [Go + CLI](https://github.com/honk-me/honk-go),
