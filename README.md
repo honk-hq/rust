@@ -1,6 +1,6 @@
 # honk-honk (Rust)
 
-[![CI](https://github.com/honkhonk/rust/actions/workflows/ci.yml/badge.svg)](https://github.com/honkhonk/rust/actions/workflows/ci.yml)
+[![CI](https://github.com/honk-hq/rust/actions/workflows/ci.yml/badge.svg)](https://github.com/honk-hq/rust/actions/workflows/ci.yml)
 [![crates.io](https://img.shields.io/crates/v/honk-honk)](https://crates.io/crates/honk-honk)
 [![docs.rs](https://img.shields.io/docsrs/honk-honk)](https://docs.rs/honk-honk)
 
@@ -254,9 +254,9 @@ crates.io with trusted publishing (see `CHANGELOG.md`).
 
 - [honk-honk.app](https://honk-honk.app): the Honk inbox (web, iPhone).
 - [docs.rs/honk-honk](https://docs.rs/honk-honk): the API reference.
-- Other SDKs: [Node.js](https://github.com/honkhonk/node),
-  [PHP / Laravel](https://github.com/honkhonk/php), [Go + CLI](https://github.com/honkhonk/go),
-  [Swift](https://github.com/honkhonk/honk-swift), [Kotlin / Java](https://github.com/honkhonk/kotlin),
-  [n8n](https://github.com/honkhonk/n8n).
+- Other SDKs: [Node.js](https://github.com/honk-hq/node),
+  [PHP / Laravel](https://github.com/honk-hq/php), [Go + CLI](https://github.com/honk-hq/go),
+  [Swift](https://github.com/honk-hq/honk-swift), [Kotlin / Java](https://github.com/honk-hq/kotlin),
+  [n8n](https://github.com/honk-hq/n8n).
 
 MIT License.
