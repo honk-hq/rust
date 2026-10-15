@@ -67,7 +67,7 @@ jobs:
           CRATE: ${{ needs.verify.outputs.name }}
           VERSION: ${{ needs.verify.outputs.version }}
         run: |
-          code="$(curl -s -o /dev/null -w '%{http_code}' -A "honk-me release (github.com/${GITHUB_REPOSITORY})" "https://crates.io/api/v1/crates/${CRATE}/${VERSION}")"
+          code="$(curl -s -o /dev/null -w '%{http_code}' -A "honk release (github.com/${GITHUB_REPOSITORY})" "https://crates.io/api/v1/crates/${CRATE}/${VERSION}")"
           if [ "$code" = 200 ]; then
             echo "::notice::${CRATE} ${VERSION} is already on crates.io, not publishing it again"
             echo "skip=true" >> "$GITHUB_OUTPUT"

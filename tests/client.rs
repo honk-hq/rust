@@ -56,7 +56,7 @@ async fn sends_every_field_with_the_openapi_names_and_headers() {
     assert_eq!(r.header("accept"), "application/json");
     assert_eq!(
         r.header("user-agent"),
-        format!("honk-me-rust/{}", honk::VERSION)
+        format!("honk-rust/{}", honk::VERSION)
     );
     let key = r.header("idempotency-key");
     assert_eq!((key.len(), &key[14..15]), (36, "7"), "a UUIDv7: {key}");
@@ -113,7 +113,7 @@ async fn minimal_message_defaults_and_empty_fields() {
     assert_eq!(reqs[1].header("idempotency-key"), "k-1");
     assert_eq!(
         reqs[0].header("user-agent"),
-        format!("honk-me-rust/{} shop/2.1", honk::VERSION)
+        format!("honk-rust/{} shop/2.1", honk::VERSION)
     );
 }
 

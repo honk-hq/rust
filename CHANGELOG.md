@@ -1,8 +1,13 @@
 # Changelog
 
-All notable changes to the `honk-me` crate are documented here. The format follows
+All notable changes to the `honk-honk` crate are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
+
+## [0.4.0] - 2026-10-15
+
+### Changed
+- The package is now `honk-honk` on crates.io (the library is still `honk`).
 
 ## [0.3.0] - 2026-10-14
 

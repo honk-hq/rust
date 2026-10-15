@@ -1,16 +1,16 @@
 [package]
-name = "honk-me"
+name = "honk-honk"
 # The one place the version lives: VERSION and the User-Agent come from it (CARGO_PKG_VERSION),
 # and the release workflow checks it against the tag.
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 rust-version = "1.85"
 description = "Official Rust client for Honk (honk-honk.app): send events from apps, jobs and CI to your phone, with retries and idempotency built in."
 license = "MIT"
 authors = ["Honk contributors"]
-repository = "https://github.com/honk-me/honk-rust"
+repository = "https://github.com/honkhonk/rust"
 homepage = "https://honk-honk.app"
-documentation = "https://docs.rs/honk-me"
+documentation = "https://docs.rs/honk-honk"
 readme = "README.md"
 keywords = ["honk", "notifications", "push", "alerts", "monitoring"]
 categories = ["api-bindings", "web-programming::http-client"]

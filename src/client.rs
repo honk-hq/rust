@@ -12,7 +12,7 @@ use crate::message::{
 };
 use crate::validate::{encode_message, valid_idempotency_key};
 
-/// The version of this crate, sent in the `User-Agent` header (`honk-me-rust/<version>`).
+/// The version of this crate, sent in the `User-Agent` header (`honk-rust/<version>`).
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -254,7 +254,7 @@ impl HonkBuilder {
             .map_err(|e| {
                 Error::InvalidConfiguration(format!("could not create the HTTP client: {e}"))
             })?;
-        let mut user_agent = format!("honk-me-rust/{VERSION}");
+        let mut user_agent = format!("honk-rust/{VERSION}");
         if let Some(extra) = self.user_agent.filter(|s| !s.trim().is_empty()) {
             user_agent.push(' ');
             user_agent.push_str(extra.trim());

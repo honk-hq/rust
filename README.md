@@ -1,8 +1,8 @@
-# honk-me (Rust)
+# honk-honk (Rust)
 
-[![CI](https://github.com/honk-me/honk-rust/actions/workflows/ci.yml/badge.svg)](https://github.com/honk-me/honk-rust/actions/workflows/ci.yml)
-[![crates.io](https://img.shields.io/crates/v/honk-me)](https://crates.io/crates/honk-me)
-[![docs.rs](https://img.shields.io/docsrs/honk-me)](https://docs.rs/honk-me)
+[![CI](https://github.com/honkhonk/rust/actions/workflows/ci.yml/badge.svg)](https://github.com/honkhonk/rust/actions/workflows/ci.yml)
+[![crates.io](https://img.shields.io/crates/v/honk-honk)](https://crates.io/crates/honk-honk)
+[![docs.rs](https://img.shields.io/docsrs/honk-honk)](https://docs.rs/honk-honk)
 
 Official Rust client for [Honk](https://honk-honk.app), the inbox that turns events from your
 apps, jobs, scripts and CI into calm, grouped push notifications on your phone.
@@ -37,13 +37,12 @@ on your phone, not two unrelated alarms.
 ## Install
 
 ```sh
-cargo add honk-me
+cargo add honk-honk
 cargo add tokio --features macros,rt-multi-thread   # if you don't have a runtime yet
 ```
 
-or, for synchronous code, `cargo add honk-me --features blocking`. The package is `honk-me` on
-crates.io (`honk` was taken); in code the library is plain `honk`: `use honk::Honk;`. Coming
-from 0.2: replace `honk_me::` with `honk::`, nothing else changes.
+or, for synchronous code, `cargo add honk-honk --features blocking`. The package is `honk-honk`
+on crates.io (`honk` was taken); in code the library is plain `honk`: `use honk::Honk;`.
 
 Create a project and an ingestion key at [honk-honk.app](https://honk-honk.app). Its
 *Integrations* page generates ready-to-paste code.
@@ -225,7 +224,7 @@ match honk.honk(&msg, "order-1042-failed").await {
 ## Blocking client
 
 ```rust
-// Cargo.toml: honk-me = { version = "0.3", features = ["blocking"] }
+// Cargo.toml: honk-honk = { version = "0.4", features = ["blocking"] }
 use honk::Message;
 use honk::blocking::Honk;
 
@@ -247,17 +246,17 @@ cargo clippy --all-targets --all-features -- -D warnings
 HONK_URL=… HONK_KEY=… cargo test --test integration   # against a real server (use a test project's key)
 ```
 
-The version lives in `Cargo.toml` (`VERSION` and the User-Agent `honk-me-rust/<version>` come
+The version lives in `Cargo.toml` (`VERSION` and the User-Agent `honk-rust/<version>` come
 from it). Releases: push a tag `vX.Y.Z` matching it and the release workflow publishes to
 crates.io with trusted publishing (see `CHANGELOG.md`).
 
 ## Links
 
 - [honk-honk.app](https://honk-honk.app): the Honk inbox (web, iPhone).
-- [docs.rs/honk-me](https://docs.rs/honk-me): the API reference.
-- Other SDKs: [Node.js](https://github.com/honk-me/honk-node),
-  [PHP / Laravel](https://github.com/honk-me/honk-php), [Go + CLI](https://github.com/honk-me/honk-go),
-  [Swift](https://github.com/honk-me/honk-swift), [Kotlin / Java](https://github.com/honk-me/honk-kotlin),
-  [n8n](https://github.com/honk-me/honk-n8n).
+- [docs.rs/honk-honk](https://docs.rs/honk-honk): the API reference.
+- Other SDKs: [Node.js](https://github.com/honkhonk/node),
+  [PHP / Laravel](https://github.com/honkhonk/php), [Go + CLI](https://github.com/honkhonk/go),
+  [Swift](https://github.com/honkhonk/swift), [Kotlin / Java](https://github.com/honkhonk/kotlin),
+  [n8n](https://github.com/honkhonk/n8n).
 
 MIT License.
