@@ -256,7 +256,7 @@ crates.io with trusted publishing (see `CHANGELOG.md`).
 - [docs.rs/honk-honk](https://docs.rs/honk-honk): the API reference.
 - Other SDKs: [Node.js](https://github.com/honkhonk/node),
   [PHP / Laravel](https://github.com/honkhonk/php), [Go + CLI](https://github.com/honkhonk/go),
-  [Swift](https://github.com/honkhonk/swift), [Kotlin / Java](https://github.com/honkhonk/kotlin),
+  [Swift](https://github.com/honkhonk/honk-swift), [Kotlin / Java](https://github.com/honkhonk/kotlin),
   [n8n](https://github.com/honkhonk/n8n).
 
 MIT License.
