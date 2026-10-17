@@ -245,8 +245,8 @@ impl From<&String> for MetadataValue {
 /// ```
 /// use honk::{Action, Message};
 ///
-/// let msg = Message::new("Emily Carter asked for a quote")
-///     .action("Reply", "mailto:emily@example.com?subject=Your%20quote")
+/// let msg = Message::new("Maria Tudor asked for a quote")
+///     .action("Reply", "mailto:maria@example.com?subject=Your%20quote")
 ///     .action("Call", "tel:+15550134");
 /// assert_eq!(msg.actions[1], Action::new("Call", "tel:+15550134"));
 /// ```

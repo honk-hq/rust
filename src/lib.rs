@@ -27,7 +27,7 @@
 //!     honk.beep("Backup finished", "nightly pg_dump took 42 s").await?;
 //!
 //!     // Every field, and your own idempotency key.
-//!     let msg = Message::new("Ana asked for a quote: 3 rooms, 2 bathrooms")
+//!     let msg = Message::new("Maria asked for a quote: 3 rooms, 2 bathrooms")
 //!         .title("New quote request")
 //!         .severity(Severity::LOUD)
 //!         .group_key("requests/4812")
