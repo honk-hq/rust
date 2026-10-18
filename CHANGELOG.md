@@ -6,6 +6,8 @@ All notable changes to the `honk-honk` crate are documented here. The format fol
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-10-18
+
 ### Changed
 - The README and the crate description call the product Honk! Honk!; the crate, the library
   and the API are unchanged.
