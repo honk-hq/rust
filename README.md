@@ -4,7 +4,7 @@
 [![crates.io](https://img.shields.io/crates/v/honk-honk)](https://crates.io/crates/honk-honk)
 [![docs.rs](https://img.shields.io/docsrs/honk-honk)](https://docs.rs/honk-honk)
 
-Official Rust client for [Honk](https://honk-honk.app), the inbox that turns events from your
+Official Rust client for [Honk! Honk!](https://honk-honk.app), the inbox that turns events from your
 apps, jobs, scripts and CI into calm, grouped push notifications on your phone.
 
 ```rust
@@ -126,7 +126,7 @@ their 0.2 names, with no deprecation warning.
 
 ## Sending a message
 
-`honk(&message, idempotency_key)` returns `Accepted { id, duplicate, received_at }` once Honk
+`honk(&message, idempotency_key)` returns `Accepted { id, duplicate, received_at }` once Honk! Honk!
 has durably stored the event (`202`); that does not mean a push was delivered.
 
 | Field | Type | Notes |
@@ -152,7 +152,7 @@ or `None` for a new UUIDv7. A replay within 24 hours returns the original id wit
 
 ## Actions
 
-Up to three buttons on a message, in display order (the first is the primary). Honk never opens
+Up to three buttons on a message, in display order (the first is the primary). Honk! Honk! never opens
 them; the phone does when you tap one: Mail for `mailto:`, the Phone app for `tel:`, Messages for
 `sms:`, Safari for `https://`.
 
@@ -252,7 +252,7 @@ crates.io with trusted publishing (see `CHANGELOG.md`).
 
 ## Links
 
-- [honk-honk.app](https://honk-honk.app): the Honk inbox (web, iPhone).
+- [honk-honk.app](https://honk-honk.app): the Honk! Honk! inbox (web, iPhone).
 - [docs.rs/honk-honk](https://docs.rs/honk-honk): the API reference.
 - Other SDKs: [Node.js](https://github.com/honk-hq/node),
   [PHP / Laravel](https://github.com/honk-hq/php), [Go + CLI](https://github.com/honk-hq/go),

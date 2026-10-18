@@ -4,6 +4,12 @@ All notable changes to the `honk-honk` crate are documented here. The format fol
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+- The README and the crate description call the product Honk! Honk!; the crate, the library
+  and the API are unchanged.
+
 ## [0.4.0] - 2026-10-15
 
 ### Changed
