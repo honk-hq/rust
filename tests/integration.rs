@@ -44,8 +44,8 @@ async fn integration_every_field_and_duplicate() {
         .channel("sdk")
         .group_key(unique("rust/group"))
         .occurred_at(std::time::SystemTime::now())
-        .url("https://honk-me.app")
-        .image_url("https://honk-me.app/icon.png")
+        .url("https://example.com/admin/requests/4812")
+        .image_url("https://example.com/images/quote.png")
         .metadata("lang", "rust")
         .metadata("n", 1)
         .ttl_seconds(600);
