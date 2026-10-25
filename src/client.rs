@@ -524,7 +524,7 @@ impl Honk {
     }
 
     /// Uh-oh: reports a problem for `group_key`. The same method as
-    /// [`problem`](Honk::problem): opens or continues the group's incident, a long honk by
+    /// [`problem`](Honk::problem): opens or continues the group's incident, a Long message by
     /// default.
     ///
     /// ```no_run
@@ -544,7 +544,7 @@ impl Honk {
     }
 
     /// Phew: reports that `group_key` recovered. The same method as
-    /// [`recovery`](Honk::recovery): closes the group's open incident, a beep by default.
+    /// [`recovery`](Honk::recovery): closes the group's open incident, a Beep message by default.
     pub fn phew(
         &self,
         group_key: impl Into<String>,
@@ -554,7 +554,7 @@ impl Honk {
         self.recovery(group_key, title, message)
     }
 
-    /// A light honk (severity info). An empty title lets the server derive one from the message.
+    /// A Light message (severity info). An empty title lets the server derive one from the message.
     ///
     /// Every helper returns a [`PendingSend`]: chain more fields, then `.await` it.
     ///
@@ -574,22 +574,22 @@ impl Honk {
         self.pending(Severity::Info, title, message)
     }
 
-    /// A beep-beep (severity success).
+    /// A Beep message (severity success).
     pub fn beep(&self, title: impl Into<String>, message: impl Into<String>) -> PendingSend<'_> {
         self.pending(Severity::Success, title, message)
     }
 
-    /// A loud honk (severity warning).
+    /// A Loud message (severity warning).
     pub fn loud(&self, title: impl Into<String>, message: impl Into<String>) -> PendingSend<'_> {
         self.pending(Severity::Warning, title, message)
     }
 
-    /// A long honk (severity error; pushes at least as high priority).
+    /// A Long message (severity error; pushes at least as high priority).
     pub fn long(&self, title: impl Into<String>, message: impl Into<String>) -> PendingSend<'_> {
         self.pending(Severity::Error, title, message)
     }
 
-    /// A blast (severity critical; pushes at least as high priority).
+    /// A Blast message (severity critical; pushes at least as high priority).
     pub fn blast(&self, title: impl Into<String>, message: impl Into<String>) -> PendingSend<'_> {
         self.pending(Severity::Critical, title, message)
     }

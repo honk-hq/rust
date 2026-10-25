@@ -132,27 +132,27 @@ impl Honk {
         self.recovery(group_key, title, message)
     }
 
-    /// A light honk (severity info).
+    /// A Light message (severity info).
     pub fn light(&self, title: impl Into<String>, message: impl Into<String>) -> PendingSend<'_> {
         self.pending(self.inner.light(title, message))
     }
 
-    /// A beep-beep (severity success).
+    /// A Beep message (severity success).
     pub fn beep(&self, title: impl Into<String>, message: impl Into<String>) -> PendingSend<'_> {
         self.pending(self.inner.beep(title, message))
     }
 
-    /// A loud honk (severity warning).
+    /// A Loud message (severity warning).
     pub fn loud(&self, title: impl Into<String>, message: impl Into<String>) -> PendingSend<'_> {
         self.pending(self.inner.loud(title, message))
     }
 
-    /// A long honk (severity error).
+    /// A Long message (severity error).
     pub fn long(&self, title: impl Into<String>, message: impl Into<String>) -> PendingSend<'_> {
         self.pending(self.inner.long(title, message))
     }
 
-    /// A blast (severity critical).
+    /// A Blast message (severity critical).
     pub fn blast(&self, title: impl Into<String>, message: impl Into<String>) -> PendingSend<'_> {
         self.pending(self.inner.blast(title, message))
     }

@@ -46,27 +46,27 @@ wire_enum! {
     /// assert_eq!(Severity::BLAST.to_string(), "critical"); // always sent canonical
     /// ```
     Severity {
-        /// `info` (light honk). The default.
+        /// `info` (Light). The default.
         Info = "info",
-        /// `success` (beep-beep).
+        /// `success` (Beep).
         Success = "success",
-        /// `warning` (loud honk).
+        /// `warning` (Loud).
         Warning = "warning",
-        /// `error` (long honk). Pushes at least as `high` priority.
+        /// `error` (Long). Pushes at least as `high` priority.
         Error = "error",
-        /// `critical` (blast). Pushes at least as `high` priority.
+        /// `critical` (Blast). Pushes at least as `high` priority.
         Critical = "critical",
     }
 }
 
 impl Severity {
-    /// Light honk: an alias of [`Severity::Info`].
+    /// Light: an alias of [`Severity::Info`].
     pub const LIGHT: Severity = Severity::Info;
-    /// Beep-beep: an alias of [`Severity::Success`].
+    /// Beep: an alias of [`Severity::Success`].
     pub const BEEP: Severity = Severity::Success;
-    /// Loud honk: an alias of [`Severity::Warning`].
+    /// Loud: an alias of [`Severity::Warning`].
     pub const LOUD: Severity = Severity::Warning;
-    /// Long honk: an alias of [`Severity::Error`].
+    /// Long: an alias of [`Severity::Error`].
     pub const LONG: Severity = Severity::Error;
     /// Blast: an alias of [`Severity::Critical`].
     pub const BLAST: Severity = Severity::Critical;

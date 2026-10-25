@@ -66,15 +66,18 @@ it, so connections are kept alive.
 
 ## The Honk scale
 
-Every severity has a horn name. Use either; the SDK always sends the canonical value.
+Five levels. The Honk app shows them by their standard names (Info, Success, Warning, Error,
+Critical); people who prefer horn sounds can switch on the Honk names (Light, Beep, Loud, Long,
+Blast) with the "Honk names for levels" switch in Settings. The SDK takes both: the canonical values and the
+Honk names as input aliases, in any case, and always sends the canonical value.
 
-| Horn | Severity | Helper | Constant |
-|---|---|---|---|
-| light honk | `light` (info) | `honk.light(title, message)` | `Severity::LIGHT` (= `Severity::Info`) |
-| beep-beep | `beep` (success) | `honk.beep(…)` | `Severity::BEEP` |
-| loud honk | `loud` (warning) | `honk.loud(…)` | `Severity::LOUD` |
-| long honk | `long` (error) | `honk.long(…)` | `Severity::LONG` |
-| blast | `blast` (critical) | `honk.blast(…)` | `Severity::BLAST` |
+| Level | Honk name | Severity | Helper | Constant |
+|---|---|---|---|---|
+| Info | Light | `light` (info) | `honk.light(title, message)` | `Severity::LIGHT` (= `Severity::Info`) |
+| Success | Beep | `beep` (success) | `honk.beep(…)` | `Severity::BEEP` |
+| Warning | Loud | `loud` (warning) | `honk.loud(…)` | `Severity::LOUD` |
+| Error | Long | `long` (error) | `honk.long(…)` | `Severity::LONG` |
+| Critical | Blast | `blast` (critical) | `honk.blast(…)` | `Severity::BLAST` |
 
 `"loud".parse::<Severity>()`, `"LOUD"` and `"warning"` are the same event (also for
 idempotency). `long` and `blast` push at least as `high` priority. `info()`, `success()`,
@@ -120,7 +123,7 @@ honk.uhoh("db/backup", "Backup failed", "pg_dump exited with 1").await?;
 honk.phew("db/backup", "Backup OK", "pg_dump finished").await?;
 ```
 
-`uhoh` is a long honk (error) by default and `phew` a beep (success); chain `.severity(…)` to
+`uhoh` is a Long message (error) by default and `phew` a Beep message (success); chain `.severity(…)` to
 change it. `send`, `problem` and `recovery` still work: they are `honk`, `uhoh` and `phew` under
 their 0.2 names, with no deprecation warning.
 
