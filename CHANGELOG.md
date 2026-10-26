@@ -6,6 +6,8 @@ All notable changes to the `honk-honk` crate are documented here. The format fol
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-26
+
 Honk! Honk! now delivers first (contracts/API.md §5.1): the server refuses only what it cannot
 deliver and corrects everything else, listing each correction in the `202` answer. The crate
 becomes a thin wrapper around that.

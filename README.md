@@ -335,7 +335,7 @@ match honk.honk(&msg, "order-1042-failed").await {
 ## Blocking client
 
 ```rust
-// Cargo.toml: honk-honk = { version = "0.4", features = ["blocking"] }
+// Cargo.toml: honk-honk = { version = "0.5", features = ["blocking"] }
 use std::time::Duration;
 use honk::Message;
 use honk::blocking::Honk;
