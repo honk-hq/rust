@@ -30,11 +30,13 @@ pub enum Error {
     /// The client is misconfigured: a missing or malformed URL or key (from
     /// [`Honk::new`](crate::Honk::new), the builder or `from_env`).
     InvalidConfiguration(String),
-    /// The message is invalid: rejected locally (`failure.local`) or by the server (400, 413,
-    /// 415, 422). [`Failure::fields`] lists every problem. Fix the message; don't retry.
+    /// The server refused the request (400, 413, 415, 422): malformed JSON, a body over
+    /// 16 KiB, neither message nor title, an unknown field or an invalid `event_type`.
+    /// [`Failure::fields`] lists every problem. Also returned without sending anything
+    /// (`failure.local`) for a message without text or title. Fix it; don't retry.
     Validation(Box<Failure>),
-    /// 401 or 403: `invalid_key`, `priority_not_allowed` (urgent without `allow_urgent`),
-    /// `project_suspended` or `workspace_suspended`.
+    /// 401 or 403: `invalid_key`, `project_suspended`, `workspace_suspended`, or `plan_limit`
+    /// (a check-in that would create a heartbeat beyond the plan's limit).
     Auth(Box<Failure>),
     /// 429 after retries: `quota_exceeded` (daily, resets at UTC midnight), `rate_limited` or
     /// `overloaded`. See [`Failure::retry_after`].
@@ -49,8 +51,8 @@ pub enum Error {
     Timeout(Box<Failure>),
     /// 5xx on every attempt before the deadline.
     Server(Box<Failure>),
-    /// Any other unexpected answer: 404 (wrong URL), a redirect (never followed), a 2xx without
-    /// a message id.
+    /// Any other unexpected answer: 404 (wrong URL, or a check-in without an interval for a
+    /// heartbeat Honk doesn't know), a redirect (never followed), a 2xx without an id.
     Http(Box<Failure>),
 }
 
@@ -81,14 +83,15 @@ pub struct Failure {
     pub(crate) source: Option<Box<dyn std::error::Error + Send + Sync + 'static>>,
 }
 
-/// One invalid field, from the server (`error.fields[]`) or local validation.
+/// One invalid field, from the server (`error.fields[]`) or the local "message or title" check.
+/// Displays as `field code: message`.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
 #[non_exhaustive]
 pub struct FieldError {
     /// The wire name: `message`, `group_key`, `metadata.region`, `Idempotency-Key`, `body`, …
     pub field: String,
     /// `required`, `too_long`, `too_short`, `invalid_enum`, `invalid_format`, `out_of_range`,
-    /// `not_allowed`, `invalid_utf8` or `requires_group_key`.
+    /// `not_allowed` or `invalid_utf8`.
     pub code: String,
     /// A human-readable explanation.
     #[serde(default)]
@@ -147,6 +150,11 @@ impl Error {
         self.failure().map_or(&[], |f| f.fields.as_slice())
     }
 
+    /// The server's request id (`req_…`), when it answered: quote it when reporting a problem.
+    pub fn request_id(&self) -> Option<&str> {
+        self.failure().and_then(|f| f.request_id.as_deref())
+    }
+
     /// The idempotency key that was used, to retry the same event later.
     pub fn idempotency_key(&self) -> Option<&str> {
         self.failure().and_then(|f| f.idempotency_key.as_deref())
@@ -160,7 +168,7 @@ impl Error {
     pub(crate) fn local_validation(fields: Vec<FieldError>) -> Error {
         Error::Validation(Box::new(Failure {
             code: "validation_failed".into(),
-            message: "invalid message".into(),
+            message: "invalid request".into(),
             fields,
             local: true,
             ..Failure::default()
@@ -168,6 +176,17 @@ impl Error {
     }
 }
 
+impl fmt::Display for FieldError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} {}", self.field, self.code)?;
+        if !self.message.is_empty() {
+            write!(f, ": {}", self.message)?;
+        }
+        Ok(())
+    }
+}
+
+/// `honk: <status> <code>: <message> (<field> <code>: <message>; …) [request_id req_…]`
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let failure = match self {
@@ -183,22 +202,11 @@ impl fmt::Display for Error {
         }
         f.write_str(&failure.message)?;
         if !failure.fields.is_empty() {
-            let parts: Vec<String> = failure
-                .fields
-                .iter()
-                .map(|e| {
-                    format!(
-                        "{} {}",
-                        e.field,
-                        if e.message.is_empty() {
-                            &e.code
-                        } else {
-                            &e.message
-                        }
-                    )
-                })
-                .collect();
+            let parts: Vec<String> = failure.fields.iter().map(ToString::to_string).collect();
             write!(f, " ({})", parts.join("; "))?;
+        }
+        if let Some(id) = &failure.request_id {
+            write!(f, " [request_id {id}]")?;
         }
         Ok(())
     }

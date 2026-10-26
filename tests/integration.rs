@@ -122,58 +122,80 @@ async fn integration_wrong_key() {
 }
 
 #[tokio::test]
-async fn integration_urgent_not_allowed() {
+async fn integration_urgent_is_accepted() {
     let Some(honk) = honk() else { return };
-    let err = honk
+    // Kept from a key with allow_urgent; lowered to high with a warning from any other key.
+    let a = honk
         .send(
             &Message::new("rust: urgent").priority(Priority::Urgent),
             None,
         )
         .await
-        .unwrap_err();
+        .unwrap();
     assert!(
-        matches!(&err, Error::Auth(f) if f.code == "priority_not_allowed"),
-        "{err:?}"
+        a.warnings.is_empty()
+            || a.warnings
+                .iter()
+                .any(|w| (w.field.as_str(), w.code.as_str()) == ("priority", "downgraded")),
+        "{a:?}"
     );
 }
 
 #[tokio::test]
-async fn integration_server_validation() {
+async fn integration_server_corrects_and_warns() {
     let Some(_) = honk() else { return };
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(0usize));
+    let count = seen.clone();
     let honk = Honk::builder()
         .url(std::env::var("HONK_URL").unwrap())
         .key(std::env::var("HONK_KEY").unwrap())
-        .validate(false)
+        .on_warnings(move |a| *count.lock().unwrap() += a.warnings.len())
         .build()
         .unwrap();
-    let err = honk
-        .send(
-            &Message::new("rust: invalid").event_type(EventType::Recovery),
-            None,
-        )
-        .await
-        .unwrap_err();
-    assert!(
-        matches!(&err, Error::Validation(f) if !f.local && f.fields.iter().any(|e| e.field == "group_key")),
-        "{err:?}"
-    );
-}
-
-#[tokio::test]
-async fn integration_server_validation_of_actions() {
-    let Some(_) = honk() else { return };
-    let honk = Honk::builder()
-        .url(std::env::var("HONK_URL").unwrap())
-        .key(std::env::var("HONK_KEY").unwrap())
-        .validate(false)
-        .build()
-        .unwrap();
-    let msg = Message::new("rust: invalid action")
+    let msg = Message::new("rust: corrected")
+        .title("t".repeat(200))
+        .url("http://example.com/not-https")
+        .ttl_seconds(5)
+        .event_type(EventType::Recovery) // no group key needed any more
         .action("Call", "tel:+15550134")
         .action("Open", "javascript:alert(1)");
-    let err = honk.send(&msg, None).await.unwrap_err();
-    assert!(
-        matches!(&err, Error::Validation(f) if !f.local && f.fields.iter().map(|e| (e.field.as_str(), e.code.as_str())).eq([("actions[1].url", "invalid_format")])),
-        "{err:?}"
+    let a = honk.send(&msg, None).await.unwrap();
+    let mut got: Vec<(&str, &str)> = a
+        .warnings
+        .iter()
+        .map(|w| (w.field.as_str(), w.code.as_str()))
+        .collect();
+    got.sort_unstable();
+    assert_eq!(
+        got,
+        [
+            ("actions[1].url", "ignored"),
+            ("title", "truncated"),
+            ("ttl_seconds", "clamped"),
+            ("url", "ignored")
+        ],
+        "{a:?}"
+    );
+    assert_eq!(*seen.lock().unwrap(), 4);
+}
+
+#[tokio::test]
+async fn integration_heartbeat_check_in() {
+    let Some(honk) = honk() else { return };
+    // A fixed slug: the first run creates the heartbeat, later runs check in with it.
+    let c = honk
+        .check_in("rust-sdk-integration")
+        .name("Rust SDK integration")
+        .interval(std::time::Duration::from_secs(604_800))
+        .await
+        .unwrap();
+    assert!(c.heartbeat_id.starts_with("hbt_"), "{c:?}");
+    assert_ne!(c.status, honk::HeartbeatStatus::Unknown, "{c:?}");
+
+    let err = honk.check_in(unique("rust-hb")).await.unwrap_err();
+    assert_eq!(
+        (err.status(), err.code()),
+        (Some(404), Some("not_found")),
+        "{err}"
     );
 }

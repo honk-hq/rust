@@ -1,6 +1,7 @@
 //! A synchronous client (feature `blocking`), for scripts, CLIs and code without an async
 //! runtime. It wraps the async [`Honk`](crate::Honk) on a private single-threaded Tokio runtime,
-//! so it has the same retries, deadline, idempotency and validation.
+//! so it has the same retries, deadline, idempotency and warnings
+//! ([`HonkBuilder::on_warnings`](crate::HonkBuilder::on_warnings) works for both).
 //!
 //! Don't call it from inside an async runtime (Tokio panics on nested runtimes); use the async
 //! client there.
@@ -13,6 +14,9 @@
 //! honk.uhoh("db/backup", "Backup failed", "pg_dump exited with 1")
 //!     .idempotency_key("backup-2026-10-04")
 //!     .send()?;
+//! honk.check_in("nightly-backup")
+//!     .interval(std::time::Duration::from_secs(86_400))
+//!     .send()?;
 //! # Ok::<(), honk::Error>(())
 //! ```
 
@@ -20,6 +24,7 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use crate::error::{Error, Result};
+use crate::heartbeat::{CheckInRequest, CheckedIn, check_in_setters};
 use crate::message::{Accepted, Category, EventType, Message, MetadataValue, Priority, Severity};
 
 /// The synchronous counterpart of [`crate::Honk`]. Cheap to clone; safe to share between
@@ -185,6 +190,48 @@ impl Honk {
     ) -> PendingSend<'_> {
         self.blast(title, message)
     }
+
+    /// Checks in with the heartbeat `slug`; finish with [`send`](PendingCheckIn::send). See
+    /// [`crate::Honk::check_in`].
+    ///
+    /// ```no_run
+    /// # fn demo(honk: honk::blocking::Honk) -> honk::Result<()> {
+    /// use std::time::Duration;
+    ///
+    /// honk.check_in("nightly-backup")
+    ///     .name("Nightly backup")
+    ///     .interval(Duration::from_secs(86_400))
+    ///     .grace(Duration::from_secs(3_600))
+    ///     .send()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn check_in(&self, slug: impl Into<String>) -> PendingCheckIn<'_> {
+        PendingCheckIn {
+            honk: self,
+            request: CheckInRequest::new(slug.into()),
+        }
+    }
+}
+
+/// A check-in prepared by [`Honk::check_in`]. Chain more fields, then call
+/// [`send`](PendingCheckIn::send).
+#[derive(Debug)]
+#[must_use = "a PendingCheckIn does nothing until send() is called"]
+pub struct PendingCheckIn<'a> {
+    honk: &'a Honk,
+    request: CheckInRequest,
+}
+
+impl PendingCheckIn<'_> {
+    check_in_setters!();
+
+    /// Checks in and blocks until Honk has recorded it.
+    pub fn send(self) -> Result<CheckedIn> {
+        self.honk
+            .runtime
+            .block_on(self.honk.inner.send_check_in(&self.request))
+    }
 }
 
 /// A send prepared by a helper of the blocking client. Chain more fields, then call
@@ -219,15 +266,15 @@ impl PendingSend<'_> {
     blocking_setters! {
         /// Overrides the severity.
         severity: Severity;
-        /// Sets the priority (urgent needs a key with `allow_urgent`).
+        /// Sets the priority (urgent is kept only from a key with `allow_urgent`).
         priority: Priority;
         /// Sets the category.
         category: Category;
-        /// Sets the source (at most 64 characters).
+        /// Sets the source.
         source: impl Into<String> => into;
-        /// Sets the environment (at most 32 characters).
+        /// Sets the environment.
         environment: impl Into<String> => into;
-        /// Sets the channel (at most 64 characters).
+        /// Sets the channel.
         channel: impl Into<String> => into;
         /// Sets the group key, e.g. `requests/4812`.
         group_key: impl Into<String> => into;
@@ -239,13 +286,13 @@ impl PendingSend<'_> {
         url: impl Into<String> => into;
         /// Sets an https image the server fetches after ingestion.
         image_url: impl Into<String> => into;
-        /// Sets the push lifetime in seconds (60–86400).
+        /// Sets the push lifetime in seconds (60–86400; the server clamps other values).
         ttl_seconds: u32;
-        /// Sets the monotonic source sequence (needs a group key).
+        /// Sets the monotonic source sequence.
         source_sequence: u64;
     }
 
-    /// Adds a button (at most 3, in display order), e.g. `.action("Call", "tel:+15550134")`.
+    /// Adds a button (up to 3, in display order), e.g. `.action("Call", "tel:+15550134")`.
     pub fn action(mut self, title: impl Into<String>, url: impl Into<String>) -> Self {
         self.message = self.message.action(title, url);
         self

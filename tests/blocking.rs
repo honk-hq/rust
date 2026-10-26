@@ -106,3 +106,40 @@ fn is_shareable_between_threads() {
     assert_eq!(mock.count(), 4);
     assert!(Honk::new("", KEY).is_err());
 }
+
+#[test]
+fn checks_in() {
+    let (_rt, mock) = mock(vec![
+        Reply::error(503, "unavailable", "busy"),
+        Reply::checked_in("hbt_1", "up"),
+    ]);
+    let honk = Honk::builder()
+        .url(&mock.url)
+        .key(KEY)
+        .backoff(Duration::from_millis(1), Duration::from_millis(5))
+        .build_blocking()
+        .unwrap();
+    let c = honk
+        .check_in("nightly-backup")
+        .interval(Duration::from_secs(86_400))
+        .fail()
+        .message("pg_dump exited with 1")
+        .send()
+        .unwrap();
+    assert_eq!(
+        (c.heartbeat_id.as_str(), c.status),
+        ("hbt_1", honk::HeartbeatStatus::Up)
+    );
+    let reqs = mock.requests();
+    assert_eq!(reqs.len(), 2);
+    assert_eq!(reqs[1].path, "/v1/heartbeats/check-in");
+    assert_eq!(
+        reqs[1].json(),
+        serde_json::json!({
+            "slug": "nightly-backup",
+            "interval_seconds": 86400,
+            "status": "fail",
+            "message": "pg_dump exited with 1"
+        })
+    );
+}

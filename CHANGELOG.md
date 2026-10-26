@@ -6,6 +6,55 @@ All notable changes to the `honk-honk` crate are documented here. The format fol
 
 ## [Unreleased]
 
+Honk! Honk! now delivers first (contracts/API.md §5.1): the server refuses only what it cannot
+deliver and corrects everything else, listing each correction in the `202` answer. The crate
+becomes a thin wrapper around that.
+
+### Added
+- `Accepted::warnings: Vec<Warning>` and `Accepted::has_warnings()`: what the server corrected
+  to accept the message. `Warning { field, code, message }` (codes `truncated`, `normalized`,
+  `ignored`, `clamped`, `downgraded`, `hashed`; unknown codes are kept as sent) displays as
+  `title truncated: …`. A missing, `null` or unreadable `warnings` is an empty list, never an
+  error.
+- `HonkBuilder::on_warnings(|accepted| …)`: called once per accepted send that has warnings
+  (never for errors, not per retry), for the async and the blocking client.
+- `Error::request_id()`. `Display` of an error now shows each field's code as well as its
+  message (`event_type invalid_enum: must be one of …`) and ends with `[request_id req_…]`;
+  `FieldError` implements `Display`.
+- A title-only message: `Message::default().title("…")` (or a helper with an empty message)
+  is sent without `message`.
+- Heartbeat check-ins (`POST /v1/heartbeats/check-in`): `honk.check_in(slug)` returns a
+  `PendingCheckIn` with `.name(…)`, `.interval(Duration)`, `.grace(Duration)`, `.fail()`,
+  `.failed(bool)` and `.message(…)`; `.await` it for a `CheckedIn { heartbeat_id, status }`.
+  With an interval, the first check-in creates the heartbeat. Retried like messages (no
+  idempotency key needed). Only the slug is required locally; the server checks the values.
+  Also on `blocking::Honk`, finished with `.send()`. `HeartbeatStatus`.
+
+### Changed
+- No more local validation of field values (lengths, URLs, actions, metadata, TTL, the 16 KiB
+  body, group-key rules): the values are sent as given and the server corrects them with a
+  warning or refuses the request. The only local checks left: a message or a title (non-blank;
+  `Error::Validation`, field `message`, code `required`), a check-in's slug, a URL and a key on
+  the client, and an `Idempotency-Key` without control characters (which could not be sent as a
+  header). The server's other rules for the key (1–128 printable ASCII) come back as its `422`.
+- A recovery and a `source_sequence` no longer need a group key, and `uhoh`/`phew`/`problem`/
+  `recovery` accept an empty group key (it is left out; the message groups by its title).
+- The key is no longer required to start with `honk_` locally; a wrong key is the server's
+  `401 invalid_key`.
+- `encode_message(message, defaults)` lost its `validate` argument.
+- `Priority::Urgent` from a key without `allow_urgent` is accepted as `high` with a
+  `downgraded` warning (the server no longer answers `403 priority_not_allowed`).
+
+### Deprecated
+- `HonkBuilder::validate(bool)`: does nothing now; remove the call.
+
+### Removed
+- The limit constants `MAX_BODY_BYTES`, `MAX_MESSAGE_BYTES`, `MAX_TITLE`, `MAX_SOURCE`,
+  `MAX_ENVIRONMENT`, `MAX_CHANNEL`, `MAX_GROUP_KEY`, `MAX_URL_BYTES`, `MAX_ACTIONS`,
+  `MAX_ACTION_TITLE`, `MAX_METADATA_KEYS`, `MAX_METADATA_STRING`, `MIN_TTL_SECONDS` and
+  `MAX_TTL_SECONDS`: the server enforces (and corrects to) them.
+- The retired error codes `priority_not_allowed` and `requires_group_key` from the docs.
+
 ## [0.4.1] - 2026-10-18
 
 ### Changed

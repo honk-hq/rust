@@ -6,11 +6,12 @@ use std::time::{Duration, SystemTime};
 use reqwest::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE, LOCATION, RETRY_AFTER, USER_AGENT};
 use tokio::time::Instant;
 
+use crate::encode::{encode_message, sendable_idempotency_key};
 use crate::error::{Error, Failure, FieldError, Result};
+use crate::heartbeat::{CheckInRequest, CheckedIn, check_in_setters};
 use crate::message::{
     Accepted, Category, Defaults, EventType, Message, MetadataValue, Priority, Severity,
 };
-use crate::validate::{encode_message, valid_idempotency_key};
 
 /// The version of this crate, sent in the `User-Agent` header (`honk-rust/<version>`).
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -42,6 +43,7 @@ pub struct Honk {
 
 struct Inner {
     endpoint: String,
+    check_in_endpoint: String,
     key: String,
     timeout: Duration,
     retries: u32,
@@ -49,9 +51,19 @@ struct Inner {
     backoff_base: Duration,
     backoff_max: Duration,
     defaults: Defaults,
-    validate: bool,
+    on_warnings: Option<WarningHook>,
     user_agent: String,
     http: reqwest::Client,
+}
+
+/// The callback of [`HonkBuilder::on_warnings`].
+#[derive(Clone)]
+struct WarningHook(Arc<dyn Fn(&Accepted) + Send + Sync>);
+
+impl std::fmt::Debug for WarningHook {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("WarningHook")
+    }
 }
 
 impl std::fmt::Debug for Honk {
@@ -91,7 +103,7 @@ pub struct HonkBuilder {
     backoff_base: Duration,
     backoff_max: Duration,
     defaults: Defaults,
-    validate: bool,
+    on_warnings: Option<WarningHook>,
     user_agent: Option<String>,
 }
 
@@ -106,7 +118,7 @@ impl Default for HonkBuilder {
             backoff_base: DEFAULT_BACKOFF_BASE,
             backoff_max: DEFAULT_BACKOFF_MAX,
             defaults: Defaults::default(),
-            validate: true,
+            on_warnings: None,
             user_agent: None,
         }
     }
@@ -202,10 +214,32 @@ impl HonkBuilder {
         self
     }
 
-    /// `false` sends messages without local checks (only "message is required" remains); the
-    /// server always validates. Default `true`.
-    pub fn validate(mut self, validate: bool) -> Self {
-        self.validate = validate;
+    /// Does nothing: the client no longer checks field values (the server corrects them and
+    /// says so in [`Accepted::warnings`]). Only "a message or a title" and a check-in's slug
+    /// are checked before sending.
+    #[deprecated(note = "the client no longer validates field values; remove the call")]
+    pub fn validate(self, _validate: bool) -> Self {
+        self
+    }
+
+    /// Called with the answer of every send the server accepted with corrections (a title
+    /// shortened, an invalid URL left out, `urgent` lowered to `high`, …), once per send and
+    /// never for errors. Use it to log them; they are also on [`Accepted::warnings`].
+    ///
+    /// ```
+    /// let honk = honk::Honk::builder()
+    ///     .url("https://honk-honk.app")
+    ///     .key("honk_ab12cd34ef56_ABCDEFGHIJKLMNOPQRSTUVWXYZ012345")
+    ///     .on_warnings(|accepted| {
+    ///         for w in &accepted.warnings {
+    ///             eprintln!("honk {}: {w}", accepted.id); // "title truncated: …"
+    ///         }
+    ///     })
+    ///     .build()?;
+    /// # Ok::<(), honk::Error>(())
+    /// ```
+    pub fn on_warnings(mut self, hook: impl Fn(&Accepted) + Send + Sync + 'static) -> Self {
+        self.on_warnings = Some(WarningHook(Arc::new(hook)));
         self
     }
 
@@ -242,10 +276,9 @@ impl HonkBuilder {
                 "key is required (a project ingestion key honk_…; is HONK_KEY set?)",
             ));
         }
-        if !key.starts_with("honk_") || !key.bytes().all(|b| (0x21..=0x7e).contains(&b)) {
-            return Err(config(
-                "key must be a project ingestion key starting with honk_ (create one under Project → Keys)",
-            ));
+        if key.chars().any(char::is_control) {
+            // It could not be sent as a header; anything else is the server's to judge (401).
+            return Err(config("key must not contain control characters"));
         }
         let http = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
@@ -262,6 +295,7 @@ impl HonkBuilder {
         Ok(Honk {
             inner: Arc::new(Inner {
                 endpoint: format!("{url}/v1/messages"),
+                check_in_endpoint: format!("{url}/v1/heartbeats/check-in"),
                 key,
                 timeout: if self.timeout.is_zero() {
                     DEFAULT_TIMEOUT
@@ -285,7 +319,7 @@ impl HonkBuilder {
                     self.backoff_max
                 },
                 defaults: self.defaults,
-                validate: self.validate,
+                on_warnings: self.on_warnings,
                 user_agent,
                 http,
             }),
@@ -326,6 +360,10 @@ impl Honk {
     /// e.g. `"request-4812"`), or `None` for a new UUIDv7. A replay within 24 hours returns the
     /// original id with `duplicate: true`.
     ///
+    /// The only local check is that the message has a text or a title. Anything else the
+    /// server can't use as sent is corrected or left out, and listed in
+    /// [`Accepted::warnings`] (also passed to [`HonkBuilder::on_warnings`]).
+    ///
     /// ```no_run
     /// # async fn demo(honk: honk::Honk) -> honk::Result<()> {
     /// use honk::{Message, Severity};
@@ -346,26 +384,103 @@ impl Honk {
         idempotency_key: impl Into<Option<&'k str>>,
     ) -> Result<Accepted> {
         let me = &*self.inner;
-        let body = encode_message(message, &me.defaults, me.validate)?;
+        let body = encode_message(message, &me.defaults)?;
         let key = match idempotency_key.into() {
             None => crate::uuid::new_idempotency_key(),
-            Some(k) if valid_idempotency_key(k) => k.to_owned(),
+            Some(k) if sendable_idempotency_key(k) => k.to_owned(),
             Some(_) => {
                 return Err(Error::local_validation(vec![FieldError::new(
                     "Idempotency-Key",
                     "invalid_format",
-                    "use 1-128 printable ASCII characters without spaces",
+                    "must not contain control characters; use 1-128 printable ASCII characters",
                 )]));
             }
         };
 
+        let call = Call {
+            url: &me.endpoint,
+            body: &body,
+            idempotency_key: Some(&key),
+            lost: "the event may or may not have been stored; retrying with the same idempotency key is safe",
+            no_id: "answer without a message id",
+            not_found: "is the URL the base address of your Honk server?",
+        };
+        let accepted: Accepted = self.call(&call, |a: &Accepted| !a.id.is_empty()).await?;
+        if let Some(hook) = me.on_warnings.as_ref().filter(|_| accepted.has_warnings()) {
+            (hook.0)(&accepted);
+        }
+        Ok(accepted)
+    }
+
+    /// Checks in with the heartbeat `slug` (`[a-z0-9-]{1,64}`, unique in the key's project) and
+    /// returns once Honk has recorded it (`202`). When check-ins stop for longer than the
+    /// heartbeat's interval plus its grace period, Honk opens a problem in the project; the
+    /// next check-in recovers it.
+    ///
+    /// Chain [`interval`](PendingCheckIn::interval) to create the heartbeat on its first
+    /// check-in (and keep its interval in step with the code); without one, a slug Honk doesn't
+    /// know fails with a `404` ([`Error::Http`], code `not_found`). [`fail`](PendingCheckIn::fail)
+    /// reports an explicit failure.
+    ///
+    /// Retried like [`send`](Honk::send) (network errors, timeouts, 429, 5xx, under the same
+    /// deadline). A check-in needs no idempotency key: Honk ignores check-ins less than 10 s
+    /// apart and a failure while a problem is open, so a retry never adds a notification.
+    ///
+    /// ```no_run
+    /// # async fn demo(honk: honk::Honk) -> honk::Result<()> {
+    /// use std::time::Duration;
+    ///
+    /// // After each successful run of a job that runs every 5 minutes:
+    /// honk.check_in("mailman-host")
+    ///     .interval(Duration::from_secs(300))
+    ///     .grace(Duration::from_secs(120))
+    ///     .await?;
+    ///
+    /// // When it fails: a problem now, instead of when the next check-in is late.
+    /// honk.check_in("mailman-host").fail().message("queue runner exited with 1").await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn check_in(&self, slug: impl Into<String>) -> PendingCheckIn<'_> {
+        PendingCheckIn {
+            honk: self,
+            request: CheckInRequest::new(slug.into()),
+        }
+    }
+
+    pub(crate) async fn send_check_in(&self, request: &CheckInRequest) -> Result<CheckedIn> {
+        let me = &*self.inner;
+        let body = request.encode()?;
+        let call = Call {
+            url: &me.check_in_endpoint,
+            body: &body,
+            idempotency_key: None,
+            lost: "the check-in may or may not have been recorded; checking in again is safe",
+            no_id: "answer without a heartbeat id",
+            not_found: if request.interval.is_some() {
+                "is the URL the base address of a Honk server with heartbeats?"
+            } else {
+                "no heartbeat with this slug in the key's project: set an interval to create it on its first check-in"
+            },
+        };
+        self.call(&call, |c: &CheckedIn| !c.heartbeat_id.is_empty())
+            .await
+    }
+
+    /// Posts `call` until it succeeds, fails for good, or the retries or the deadline run out.
+    async fn call<T: serde::de::DeserializeOwned>(
+        &self,
+        call: &Call<'_>,
+        valid: fn(&T) -> bool,
+    ) -> Result<T> {
+        let me = &*self.inner;
         let deadline = Instant::now() + me.deadline;
         let mut attempt: u32 = 1;
         loop {
             let remaining = deadline.saturating_duration_since(Instant::now());
             let timeout = me.timeout.min(remaining).max(Duration::from_millis(1));
-            let failure = match self.attempt(&body, &key, timeout, attempt).await {
-                Ok(accepted) => return Ok(accepted),
+            let failure = match self.attempt(call, valid, timeout, attempt).await {
+                Ok(answer) => return Ok(answer),
                 Err(e) => e,
             };
             if !failure.is_retryable() || attempt > me.retries {
@@ -415,14 +530,15 @@ impl Honk {
         Duration::from_micros(crate::uuid::random_u64() % (ceiling + 1))
     }
 
-    async fn attempt(
+    async fn attempt<T: serde::de::DeserializeOwned>(
         &self,
-        body: &str,
-        key: &str,
+        call: &Call<'_>,
+        valid: fn(&T) -> bool,
         timeout: Duration,
         attempt: u32,
-    ) -> Result<Accepted> {
+    ) -> Result<T> {
         let me = &*self.inner;
+        let key = call.idempotency_key;
         let failure = |kind: fn(Box<Failure>) -> Error,
                        code: &str,
                        message: String,
@@ -430,7 +546,7 @@ impl Honk {
             kind(Box::new(Failure {
                 code: code.into(),
                 message,
-                idempotency_key: Some(key.to_owned()),
+                idempotency_key: key.map(str::to_owned),
                 attempts: attempt,
                 source: Some(Box::new(source)),
                 ..Failure::default()
@@ -441,9 +557,7 @@ impl Honk {
                 failure(
                     Error::Timeout,
                     "timeout",
-                    format!(
-                        "no answer within {timeout:?} (the event may or may not have been stored; retrying with the same idempotency key is safe)"
-                    ),
+                    format!("no answer within {timeout:?} ({})", call.lost),
                     e,
                 )
             } else {
@@ -452,15 +566,18 @@ impl Honk {
             }
         };
 
-        let mut res = me
+        let mut req = me
             .http
-            .post(&me.endpoint)
-            .header(AUTHORIZATION, format!("Bearer {}", me.key))
-            .header("Idempotency-Key", key)
+            .post(call.url)
+            .header(AUTHORIZATION, format!("Bearer {}", me.key));
+        if let Some(key) = key {
+            req = req.header("Idempotency-Key", key);
+        }
+        let mut res = req
             .header(CONTENT_TYPE, "application/json")
             .header(ACCEPT, "application/json")
             .header(USER_AGENT, &me.user_agent)
-            .body(body.to_owned())
+            .body(call.body.to_owned())
             .timeout(timeout)
             .send()
             .await
@@ -475,22 +592,23 @@ impl Honk {
             }
         }
         if (200..300).contains(&status) {
-            return match serde_json::from_slice::<Accepted>(&data) {
-                Ok(a) if !a.id.is_empty() => Ok(a),
+            return match serde_json::from_slice::<T>(&data) {
+                Ok(a) if valid(&a) => Ok(a),
                 _ => Err(Error::Http(Box::new(Failure {
                     status: Some(status),
-                    message: "answer without a message id".into(),
-                    idempotency_key: Some(key.to_owned()),
+                    message: call.no_id.into(),
+                    idempotency_key: key.map(str::to_owned),
                     attempts: attempt,
                     ..Failure::default()
                 }))),
             };
         }
-        Err(response_error(status, &headers, &data, key, attempt))
+        Err(response_error(status, &headers, &data, call, attempt))
     }
 
     /// Reports a problem for `group_key` (opens or continues its incident). Severity defaults
-    /// to long (error); `.severity(…)` overrides it. An empty title lets the server derive one.
+    /// to long (error); `.severity(…)` overrides it. An empty title lets the server derive one;
+    /// an empty group key leaves it out (the message then groups by its title).
     ///
     /// ```no_run
     /// # async fn demo(honk: honk::Honk) -> honk::Result<()> {
@@ -511,7 +629,7 @@ impl Honk {
     }
 
     /// Reports that `group_key` recovered (closes its open incident). Severity defaults to beep
-    /// (success); `.severity(…)` overrides it.
+    /// (success); `.severity(…)` overrides it. An empty group key leaves it out.
     pub fn recovery(
         &self,
         group_key: impl Into<String>,
@@ -584,12 +702,12 @@ impl Honk {
         self.pending(Severity::Warning, title, message)
     }
 
-    /// A Long message (severity error; pushes at least as high priority).
+    /// A Long message (severity error).
     pub fn long(&self, title: impl Into<String>, message: impl Into<String>) -> PendingSend<'_> {
         self.pending(Severity::Error, title, message)
     }
 
-    /// A Blast message (severity critical; pushes at least as high priority).
+    /// A Blast message (severity critical).
     pub fn blast(&self, title: impl Into<String>, message: impl Into<String>) -> PendingSend<'_> {
         self.pending(Severity::Critical, title, message)
     }
@@ -642,6 +760,20 @@ impl Honk {
     }
 }
 
+/// One POST and how to explain its failures.
+struct Call<'a> {
+    url: &'a str,
+    body: &'a str,
+    /// Sent as `Idempotency-Key` (messages only).
+    idempotency_key: Option<&'a str>,
+    /// Why a timeout is harmless, for its error message.
+    lost: &'static str,
+    /// The error message for a 2xx whose answer can't be read.
+    no_id: &'static str,
+    /// The hint added to a 404's message.
+    not_found: &'static str,
+}
+
 /// The source chain of an error in one line ("error sending request: connection refused").
 fn error_chain(e: &dyn std::error::Error) -> String {
     let mut out = e.to_string();
@@ -676,7 +808,7 @@ fn response_error(
     status: u16,
     headers: &reqwest::header::HeaderMap,
     data: &[u8],
-    key: &str,
+    call: &Call<'_>,
     attempt: u32,
 ) -> Error {
     #[derive(serde::Deserialize, Default)]
@@ -733,7 +865,7 @@ fn response_error(
             Error::Http
         }
         404 => {
-            message.push_str(" (is the URL the base address of your Honk server?)");
+            message = format!("{message} ({})", call.not_found);
             Error::Http
         }
         _ => Error::Http,
@@ -744,7 +876,7 @@ fn response_error(
         message,
         fields: env.error.fields,
         request_id,
-        idempotency_key: Some(key.to_owned()),
+        idempotency_key: call.idempotency_key.map(str::to_owned),
         attempts: attempt,
         retry_after: header(RETRY_AFTER.as_str())
             .and_then(|v| parse_retry_after(v, SystemTime::now())),
@@ -792,15 +924,15 @@ impl<'a> PendingSend<'a> {
     pending_setters! {
         /// Overrides the severity.
         severity: Severity;
-        /// Sets the priority (urgent needs a key with `allow_urgent`).
+        /// Sets the priority (urgent is kept only from a key with `allow_urgent`).
         priority: Priority;
         /// Sets the category.
         category: Category;
-        /// Sets the source (at most 64 characters).
+        /// Sets the source.
         source: impl Into<String> => into;
-        /// Sets the environment (at most 32 characters).
+        /// Sets the environment.
         environment: impl Into<String> => into;
-        /// Sets the channel (at most 64 characters).
+        /// Sets the channel.
         channel: impl Into<String> => into;
         /// Sets the group key, e.g. `requests/4812`.
         group_key: impl Into<String> => into;
@@ -812,13 +944,13 @@ impl<'a> PendingSend<'a> {
         url: impl Into<String> => into;
         /// Sets an https image the server fetches after ingestion.
         image_url: impl Into<String> => into;
-        /// Sets the push lifetime in seconds (60–86400).
+        /// Sets the push lifetime in seconds (60–86400; the server clamps other values).
         ttl_seconds: u32;
-        /// Sets the monotonic source sequence (needs a group key).
+        /// Sets the monotonic source sequence.
         source_sequence: u64;
     }
 
-    /// Adds a button (at most 3, in display order), e.g. `.action("Call", "tel:+15550134")`.
+    /// Adds a button (up to 3, in display order), e.g. `.action("Call", "tel:+15550134")`.
     pub fn action(mut self, title: impl Into<String>, url: impl Into<String>) -> Self {
         self.message = self.message.action(title, url);
         self
@@ -851,6 +983,33 @@ impl<'a> PendingSend<'a> {
 impl<'a> IntoFuture for PendingSend<'a> {
     type Output = Result<Accepted>;
     type IntoFuture = Pin<Box<dyn Future<Output = Result<Accepted>> + Send + 'a>>;
+
+    fn into_future(self) -> Self::IntoFuture {
+        Box::pin(self.send())
+    }
+}
+
+/// A check-in prepared by [`Honk::check_in`]. Chain more fields, then `.await` it (or call
+/// [`send`](PendingCheckIn::send)).
+#[derive(Debug)]
+#[must_use = "a PendingCheckIn does nothing until it is awaited"]
+pub struct PendingCheckIn<'a> {
+    honk: &'a Honk,
+    request: CheckInRequest,
+}
+
+impl<'a> PendingCheckIn<'a> {
+    check_in_setters!();
+
+    /// Checks in, like awaiting it.
+    pub async fn send(self) -> Result<CheckedIn> {
+        self.honk.send_check_in(&self.request).await
+    }
+}
+
+impl<'a> IntoFuture for PendingCheckIn<'a> {
+    type Output = Result<CheckedIn>;
+    type IntoFuture = Pin<Box<dyn Future<Output = Result<CheckedIn>> + Send + 'a>>;
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(self.send())

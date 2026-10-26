@@ -1,5 +1,6 @@
 mod common;
 
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use common::{KEY, Mock, Reply, client, closed_url};
@@ -356,7 +357,10 @@ async fn gives_up_after_the_retries() {
     };
     assert_eq!((f.status, f.attempts), (Some(500), 3));
     assert_eq!(mock.count(), 3);
-    assert_eq!(err.to_string(), "honk: 500 internal: boom");
+    assert_eq!(
+        err.to_string(),
+        "honk: 500 internal: boom [request_id req_test]"
+    );
 }
 
 #[tokio::test]
@@ -442,7 +446,7 @@ async fn errors_that_are_never_retried() {
     for (status, code, want) in [
         (400, "invalid_json", "validation"),
         (401, "invalid_key", "auth"),
-        (403, "priority_not_allowed", "auth"),
+        (403, "workspace_suspended", "auth"),
         (403, "project_suspended", "auth"),
         (404, "not_found", "http"),
         (409, "idempotency_conflict", "conflict"),
@@ -470,9 +474,11 @@ async fn errors_that_are_never_retried() {
         );
         assert!(!err.is_retryable());
         assert_eq!(mock.count(), 1, "{status} is not retried");
-        assert_eq!(
-            err.failure().unwrap().request_id.as_deref(),
-            Some("req_test")
+        assert_eq!(err.request_id(), Some("req_test"));
+        assert!(
+            err.to_string().contains(&format!("{status} {code}: nope"))
+                && err.to_string().ends_with("[request_id req_test]"),
+            "{err}"
         );
         if status == 404 {
             assert!(err.to_string().contains("base address"), "{err}");
@@ -482,7 +488,7 @@ async fn errors_that_are_never_retried() {
 
 #[tokio::test]
 async fn server_validation_exposes_every_field() {
-    let body = r#"{"error":{"code":"validation_failed","message":"Invalid message","request_id":"req_1","fields":[{"field":"severity","code":"invalid_enum","message":"must be one of info, success"},{"field":"group_key","code":"requires_group_key"}]}}"#;
+    let body = r#"{"error":{"code":"validation_failed","message":"Request validation failed","request_id":"req_1","fields":[{"field":"event_type","code":"invalid_enum","message":"must be one of event, problem, recovery"},{"field":"message","code":"required"}]}}"#;
     let mock = Mock::start(vec![Reply::json(422, body)]).await;
     let err = client(&mock)
         .build()
@@ -494,18 +500,56 @@ async fn server_validation_exposes_every_field() {
         panic!("{err:?}")
     };
     assert!(!f.local);
-    assert_eq!(f.fields.len(), 2);
+    assert_eq!((f.status, f.attempts), (Some(422), 1));
+    assert_eq!(err.code(), Some("validation_failed"));
+    assert_eq!(err.request_id(), Some("req_1"));
+    let fields: Vec<_> = err
+        .fields()
+        .iter()
+        .map(|e| (e.field.as_str(), e.code.as_str(), e.message.as_str()))
+        .collect();
     assert_eq!(
-        (
-            f.fields[1].field.as_str(),
-            f.fields[1].code.as_str(),
-            f.fields[1].message.as_str()
-        ),
-        ("group_key", "requires_group_key", "")
+        fields,
+        [
+            (
+                "event_type",
+                "invalid_enum",
+                "must be one of event, problem, recovery"
+            ),
+            ("message", "required", "")
+        ]
     );
     assert_eq!(
         err.to_string(),
-        "honk: 422 validation_failed: Invalid message (severity must be one of info, success; group_key requires_group_key)"
+        "honk: 422 validation_failed: Request validation failed (event_type invalid_enum: must be one of event, problem, recovery; message required) [request_id req_1]"
+    );
+    assert_eq!(mock.count(), 1, "a 422 is not retried");
+}
+
+#[tokio::test]
+async fn unknown_fields_and_the_request_id_header() {
+    // No request_id in the body: the X-Request-ID header is used.
+    let mock = Mock::start(vec![
+        Reply::json(
+            422,
+            r#"{"error":{"code":"unknown_field","message":"Unknown field","fields":[{"field":"colour","code":"not_allowed"}]}}"#,
+        )
+        .header("X-Request-ID", "req_hdr"),
+    ])
+    .await;
+    let err = client(&mock)
+        .build()
+        .unwrap()
+        .send(&Message::new("x"), None)
+        .await
+        .unwrap_err();
+    assert_eq!(
+        (err.code(), err.request_id()),
+        (Some("unknown_field"), Some("req_hdr"))
+    );
+    assert_eq!(
+        err.to_string(),
+        "honk: 422 unknown_field: Unknown field (colour not_allowed) [request_id req_hdr]"
     );
 }
 
@@ -569,34 +613,132 @@ async fn duplicate_and_answers_without_an_id() {
     );
 }
 
+const WITH_WARNINGS: &str = r#"{"id":"msg_w","status":"accepted","duplicate":false,"received_at":"2026-10-04T12:20:05.123Z","warnings":[{"field":"title","code":"truncated","message":"longer than 160 characters; shortened"},{"field":"actions[0].url","code":"ignored","message":"not an https, mailto, tel or sms URL; left out"},{"field":"priority","code":"downgraded","message":"urgent needs a key that allows it; sent as high"}]}"#;
+
 #[tokio::test]
-async fn validate_false_leaves_value_checks_to_the_server() {
-    let mock = Mock::start(vec![]).await;
-    let honk = client(&mock).validate(false).build().unwrap();
-    honk.send(
-        &Message::new("x").title("t".repeat(300)).url("ftp://nope"),
-        None,
-    )
-    .await
-    .unwrap();
+async fn warnings_are_returned_and_passed_to_the_hook_once() {
+    // A 503 first: the hook runs once, for the accepted answer, not per attempt.
+    let mock = Mock::start(vec![
+        Reply::error(503, "unavailable", "paused").header("Retry-After", "0"),
+        Reply::json(202, WITH_WARNINGS),
+        Reply::accepted("msg_clean"),
+    ])
+    .await;
+    let seen: Arc<Mutex<Vec<(String, usize)>>> = Arc::default();
+    let log = seen.clone();
+    let honk = client(&mock)
+        .on_warnings(move |a| log.lock().unwrap().push((a.id.clone(), a.warnings.len())))
+        .build()
+        .unwrap();
+    let a = honk
+        .loud("t".repeat(300), "x")
+        .action("Run", "javascript:alert(1)")
+        .priority(Priority::Urgent)
+        .await
+        .unwrap();
+    assert!(a.has_warnings());
+    let got: Vec<_> = a
+        .warnings
+        .iter()
+        .map(|w| (w.field.as_str(), w.code.as_str()))
+        .collect();
     assert_eq!(
-        mock.requests()[0].json()["title"].as_str().unwrap().len(),
-        300
+        got,
+        [
+            ("title", "truncated"),
+            ("actions[0].url", "ignored"),
+            ("priority", "downgraded")
+        ]
     );
-    let err = honk.send(&Message::new(""), None).await.unwrap_err();
-    assert!(
-        matches!(&err, Error::Validation(f) if f.local && f.fields[0].code == "required"),
-        "{err:?}"
+    assert_eq!(
+        a.warnings[0].to_string(),
+        "title truncated: longer than 160 characters; shortened"
     );
-    assert_eq!(mock.count(), 1);
+    // The values went out as given: the server corrected them.
+    let sent = mock.requests()[1].json();
+    assert_eq!(sent["title"].as_str().unwrap().len(), 300);
+    assert_eq!(sent["actions"][0]["url"], "javascript:alert(1)");
+    assert_eq!(sent["priority"], "urgent");
+
+    // No warnings: an empty list, and the hook is not called.
+    let clean = honk.send(&Message::new("x"), None).await.unwrap();
+    assert!(clean.warnings.is_empty() && !clean.has_warnings());
+    assert_eq!(*seen.lock().unwrap(), [("msg_w".to_owned(), 3)]);
 }
 
 #[tokio::test]
-async fn invalid_idempotency_keys_are_rejected_locally() {
+async fn errors_never_reach_the_warnings_hook() {
+    let mock = Mock::start(vec![Reply::error(422, "validation_failed", "bad")]).await;
+    let calls = Arc::new(Mutex::new(0));
+    let count = calls.clone();
+    let honk = client(&mock)
+        .on_warnings(move |_| *count.lock().unwrap() += 1)
+        .build()
+        .unwrap();
+    honk.send(&Message::new("x"), None).await.unwrap_err();
+    assert_eq!(*calls.lock().unwrap(), 0);
+}
+
+#[tokio::test]
+async fn unreadable_warnings_never_fail_an_accepted_send() {
+    let mock = Mock::start(vec![
+        Reply::json(202, r#"{"id":"msg_1","warnings":null}"#),
+        Reply::json(202, r#"{"id":"msg_2","warnings":"oops"}"#),
+        Reply::json(
+            202,
+            r#"{"id":"msg_3","warnings":[{"field":"x","code":"something_new"}]}"#,
+        ),
+    ])
+    .await;
+    let honk = client(&mock).build().unwrap();
+    for want in ["msg_1", "msg_2"] {
+        let a = honk.send(&Message::new("x"), None).await.unwrap();
+        assert_eq!((a.id.as_str(), a.warnings.len()), (want, 0));
+    }
+    let a = honk.send(&Message::new("x"), None).await.unwrap();
+    assert_eq!(
+        a.warnings[0].code, "something_new",
+        "unknown codes are kept"
+    );
+    assert_eq!(a.warnings[0].to_string(), "x something_new");
+}
+
+#[tokio::test]
+async fn title_only_and_recovery_without_a_group_key_are_sent() {
     let mock = Mock::start(vec![]).await;
     let honk = client(&mock).build().unwrap();
-    let long = "k".repeat(129);
-    for key in ["", "has space", long.as_str(), "café", "tab\tkey"] {
+    honk.send(&Message::default().title("Deploy finished"), None)
+        .await
+        .unwrap();
+    honk.beep("Deploy finished", "").await.unwrap();
+    honk.phew("", "Backup OK", "pg_dump finished")
+        .source_sequence(7)
+        .await
+        .unwrap();
+    let reqs = mock.requests();
+    assert_eq!(reqs[0].json(), json!({ "title": "Deploy finished" }));
+    assert_eq!(
+        reqs[1].json(),
+        json!({ "title": "Deploy finished", "severity": "success" })
+    );
+    assert_eq!(
+        reqs[2].json(),
+        json!({ "title": "Backup OK", "message": "pg_dump finished", "severity": "success", "event_type": "recovery", "source_sequence": 7 })
+    );
+    // Neither a message nor a title: refused before sending.
+    let err = honk.send(&Message::new(" "), None).await.unwrap_err();
+    assert!(
+        matches!(&err, Error::Validation(f) if f.local && f.attempts == 0 && f.fields[0].field == "message" && f.fields[0].code == "required"),
+        "{err:?}"
+    );
+    assert_eq!(mock.count(), 3);
+}
+
+#[tokio::test]
+async fn idempotency_keys_are_left_to_the_server_unless_unsendable() {
+    let mock = Mock::start(vec![]).await;
+    let honk = client(&mock).build().unwrap();
+    for key in ["tab\tkey", "line\nbreak", "nul\0"] {
         let err = honk.send(&Message::new("x"), key).await.unwrap_err();
         assert!(
             matches!(&err, Error::Validation(f) if f.local && f.fields[0].field == "Idempotency-Key"),
@@ -604,9 +746,11 @@ async fn invalid_idempotency_keys_are_rejected_locally() {
         );
     }
     assert_eq!(mock.count(), 0);
-    honk.send(&Message::new("x"), "k".repeat(128).as_str())
-        .await
-        .unwrap();
+    let long = "k".repeat(129);
+    for key in ["has space", long.as_str()] {
+        honk.send(&Message::new("x"), key).await.unwrap();
+    }
+    assert_eq!(mock.requests()[0].header("idempotency-key"), "has space");
 }
 
 #[test]
@@ -617,17 +761,18 @@ fn construction_checks_the_url_and_key() {
         ("ftp://honk.example.com", KEY, "https://"),
         ("honk.example.com", KEY, "https://"),
         ("https://honk.example.com", "", "key is required"),
-        ("https://honk.example.com", "abc", "starting with honk_"),
         (
             "https://honk.example.com",
-            "honk_ab cd",
-            "starting with honk_",
+            "honk_ab\u{7f}cd",
+            "control characters",
         ),
     ] {
         let err = Honk::new(url, key).unwrap_err();
         assert!(matches!(err, Error::InvalidConfiguration(_)));
         assert!(err.to_string().contains(want), "{url:?} {key:?}: {err}");
     }
+    // Any other key is the server's to judge (401 invalid_key).
+    Honk::new("https://honk.example.com", "hka_mobile").unwrap();
     let honk = Honk::new("https://honk.example.com", format!("  {KEY}\n")).unwrap();
     assert!(
         !format!("{honk:?}").contains(KEY),

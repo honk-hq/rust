@@ -43,6 +43,14 @@ impl Reply {
         )
     }
 
+    /// The `202` answer to a heartbeat check-in.
+    pub fn checked_in(id: &str, status: &str) -> Reply {
+        Reply::json(
+            202,
+            &format!(r#"{{"heartbeat_id":"{id}","status":"{status}"}}"#),
+        )
+    }
+
     pub fn json(status: u16, body: &str) -> Reply {
         Reply::Answer {
             status,

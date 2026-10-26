@@ -8,9 +8,12 @@
 //! - Retries only network errors, timeouts, 429 and 5xx, with exponential backoff and full
 //!   jitter, never sooner than `Retry-After`, all under a total deadline (30 s). Redirects are
 //!   reported, never followed.
-//! - Local validation of everything cheap (lengths, URLs, actions, metadata, the 16 KiB body),
-//!   with every invalid field reported at once. [`HonkBuilder::validate`]`(false)` leaves it to
-//!   the server.
+//! - Heartbeats: [`Honk::check_in`] tells Honk a job or host is alive, and Honk tells you when
+//!   it goes quiet.
+//! - A thin wrapper: Honk delivers first. The server corrects what it can't use as sent (a
+//!   title too long, an invalid URL, `urgent` from a key without it, …) and lists each
+//!   correction in [`Accepted::warnings`]; [`HonkBuilder::on_warnings`] logs them. The client
+//!   only checks that a message has a text or a title.
 //!
 //! Keep the ingestion key (`honk_…`) on the server: never ship it inside a client app.
 //!
@@ -43,15 +46,50 @@
 //! }
 //! ```
 //!
+//! # Heartbeats
+//!
+//! A heartbeat expects a check-in at least every interval. When one is late by more than the
+//! grace period, Honk opens a problem in the project; the next check-in recovers it.
+//!
+//! ```no_run
+//! # async fn demo(honk: honk::Honk) -> honk::Result<()> {
+//! use std::time::Duration;
+//!
+//! // The first check-in with an interval creates the heartbeat "nightly-backup".
+//! honk.check_in("nightly-backup")
+//!     .name("Nightly backup")
+//!     .interval(Duration::from_secs(24 * 3600))
+//!     .grace(Duration::from_secs(3600))
+//!     .await?;
+//!
+//! // Or report a failure right away.
+//! honk.check_in("nightly-backup").fail().message("pg_dump exited with 1").await?;
+//! # Ok(())
+//! # }
+//! ```
+//!
 //! [`Honk::send`], [`Honk::problem`] and [`Honk::recovery`] are the same methods as
 //! [`Honk::honk`], [`Honk::uhoh`] and [`Honk::phew`], under their older names.
+//!
+//! # Warnings
+//!
+//! ```no_run
+//! # async fn demo(honk: honk::Honk) -> honk::Result<()> {
+//! let accepted = honk.loud("t".repeat(300), "the server shortens the title").await?;
+//! for w in &accepted.warnings {
+//!     eprintln!("{w}"); // "title truncated: …"
+//! }
+//! # Ok(())
+//! # }
+//! ```
 //!
 //! # Errors
 //!
 //! Every failure is an [`Error`]: `Validation` (fix the message), `Auth`, `Quota`, `Conflict`,
-//! `Network`, `Timeout`, `Server` or `Http`, each with a [`Failure`] holding the details.
-//! [`Error::is_retryable`] tells whether sending again later (with the same idempotency key)
-//! may succeed.
+//! `Network`, `Timeout`, `Server` or `Http`, each with a [`Failure`] holding the details: the
+//! HTTP status, the server's code and message, every invalid field and the request id, all in
+//! its `Display`. [`Error::is_retryable`] tells whether sending again later (with the same
+//! idempotency key) may succeed.
 //!
 //! # Features
 //!
@@ -65,21 +103,19 @@
 #[cfg_attr(docsrs, doc(cfg(feature = "blocking")))]
 pub mod blocking;
 mod client;
+mod encode;
 mod error;
+mod heartbeat;
 mod message;
 mod time;
 mod uuid;
-mod validate;
 
-pub use client::{Honk, HonkBuilder, PendingSend, VERSION};
+pub use client::{Honk, HonkBuilder, PendingCheckIn, PendingSend, VERSION};
+pub use encode::encode_message;
 pub use error::{Error, Failure, FieldError, Result};
+pub use heartbeat::{CheckedIn, HeartbeatStatus};
 pub use message::{
     Accepted, Action, Category, Defaults, EventType, Message, MetadataValue, ParseEnumError,
-    Priority, Severity,
+    Priority, Severity, Warning,
 };
 pub use uuid::new_idempotency_key;
-pub use validate::{
-    MAX_ACTION_TITLE, MAX_ACTIONS, MAX_BODY_BYTES, MAX_CHANNEL, MAX_ENVIRONMENT, MAX_GROUP_KEY,
-    MAX_MESSAGE_BYTES, MAX_METADATA_KEYS, MAX_METADATA_STRING, MAX_SOURCE, MAX_TITLE,
-    MAX_TTL_SECONDS, MAX_URL_BYTES, MIN_TTL_SECONDS, encode_message,
-};

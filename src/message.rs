@@ -35,8 +35,8 @@ macro_rules! wire_enum {
 }
 
 wire_enum! {
-    /// Severity, lowest to highest. `Error` and `Critical` raise the effective priority to at
-    /// least `High`. Every severity has a horn name on the Honk scale: [`Severity::LIGHT`],
+    /// Severity (the level), lowest to highest; it alone decides how a push interrupts. Every
+    /// severity has a horn name on the Honk scale: [`Severity::LIGHT`],
     /// [`Severity::BEEP`], [`Severity::LOUD`], [`Severity::LONG`], [`Severity::BLAST`].
     ///
     /// ```
@@ -52,9 +52,9 @@ wire_enum! {
         Success = "success",
         /// `warning` (Loud).
         Warning = "warning",
-        /// `error` (Long). Pushes at least as `high` priority.
+        /// `error` (Long).
         Error = "error",
-        /// `critical` (Blast). Pushes at least as `high` priority.
+        /// `critical` (Blast).
         Critical = "critical",
     }
 }
@@ -118,8 +118,9 @@ impl FromStr for Severity {
 }
 
 wire_enum! {
-    /// The priority declared by the source. `Urgent` needs an ingestion key with
-    /// `allow_urgent` (otherwise `403 priority_not_allowed`).
+    /// The priority declared by the source. The level ([`Severity`]) decides how a push
+    /// interrupts. `Urgent` is kept only from an ingestion key with `allow_urgent`; from any
+    /// other key the server lowers it to `High` with a `downgraded` warning.
     Priority {
         /// `low`.
         Low = "low",
@@ -133,7 +134,8 @@ wire_enum! {
 }
 
 wire_enum! {
-    /// A problem opens an incident for its group, a recovery closes it. Both need a group key.
+    /// A problem opens an incident for its group, a recovery closes it. Without a group key a
+    /// message groups by its title.
     EventType {
         /// `event`. The default.
         Event = "event",
@@ -202,7 +204,7 @@ from_str_enum!(Category, "category");
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum MetadataValue {
-    /// A string (at most 512 characters).
+    /// A string.
     String(String),
     /// An integer.
     Integer(i64),
@@ -253,9 +255,10 @@ impl From<&String> for MetadataValue {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
 #[non_exhaustive]
 pub struct Action {
-    /// 1–40 characters, one line, shown as sent.
+    /// Up to 40 characters, one line, shown as sent.
     pub title: String,
-    /// `https://` (no credentials), `mailto:`, `tel:` or `sms:`, at most 2048 bytes.
+    /// `https://`, `mailto:`, `tel:` or `sms:`. An action the server can't use is left out
+    /// with an `ignored` warning; the others are kept.
     pub url: String,
 }
 
@@ -269,10 +272,14 @@ impl Action {
     }
 }
 
-/// One event for `POST /v1/messages`. Only the message text is required; unset fields are
+/// One event for `POST /v1/messages`. A message text or a title is required; unset fields are
 /// omitted so the server defaults apply (severity info, priority normal, source `api`,
 /// environment `default`, channel `general`, event type event, TTL 3600 s). Empty strings
 /// count as unset.
+///
+/// Honk delivers first: values it can't use as sent (too long, a wrong type, an invalid URL or
+/// action, …) are corrected or left out, and the answer lists each correction in
+/// [`Accepted::warnings`].
 ///
 /// ```
 /// use honk::{Category, Message, Priority, Severity};
@@ -290,9 +297,10 @@ impl Action {
 #[derive(Debug, Clone, PartialEq, Default)]
 #[non_exhaustive]
 pub struct Message {
-    /// The text: plain, 1–8192 bytes of UTF-8. Line breaks and tabs are allowed.
+    /// The text: plain, up to 8192 bytes of UTF-8. Line breaks and tabs are allowed. May be
+    /// empty when a title is set.
     pub message: String,
-    /// One line, at most 160 characters. Defaults to the first line of the message.
+    /// One line, up to 160 characters. Defaults to the first line of the message.
     pub title: Option<String>,
     /// Default info (light).
     pub severity: Option<Severity>,
@@ -300,38 +308,39 @@ pub struct Message {
     pub priority: Option<Priority>,
     /// The category.
     pub category: Option<Category>,
-    /// At most 64 characters. Defaults to the client's default, then `api`.
+    /// Defaults to the client's default, then `api`.
     pub source: Option<String>,
-    /// At most 32 characters. Defaults to the client's default, then `default`.
+    /// Defaults to the client's default, then `default`.
     pub environment: Option<String>,
-    /// At most 64 characters. Defaults to the client's default, then `general`.
+    /// Defaults to the client's default, then `general`.
     pub channel: Option<String>,
-    /// At most 128 characters. Messages with the same key (per environment, source and
-    /// channel) form one group: the first one pushes, repeats update it calmly. Use one key per
-    /// customer request (`requests/<id>`), a shared key only for repeats of the same problem.
+    /// Optional. Messages with the same key (per environment, source and channel) form one
+    /// group: the first one pushes, repeats update it calmly. Without one a message groups by
+    /// its title. Use one key per customer request (`requests/<id>`), a shared key only for
+    /// repeats of the same problem.
     pub group_key: Option<String>,
     /// Default event.
     pub event_type: Option<EventType>,
     /// When it happened at the source (informational).
     pub occurred_at: Option<SystemTime>,
-    /// An https link shown as "Open link" (no credentials, at most 2048 bytes).
+    /// An https link shown as "Open link".
     pub url: Option<String>,
-    /// An https image the server fetches after ingestion (no credentials or fragment, at most
-    /// 2048 bytes).
+    /// An https image the server fetches after ingestion.
     pub image_url: Option<String>,
     /// Up to 3 buttons, in display order (the first is the primary). Empty: none.
     pub actions: Vec<Action>,
-    /// At most 16 keys matching `[A-Za-z0-9_.-]{1,64}`.
+    /// Strings, numbers or booleans, up to 16 keys.
     pub metadata: BTreeMap<String, MetadataValue>,
     /// The push lifetime, 60–86400 seconds. Default 3600.
     pub ttl_seconds: Option<u32>,
     /// A monotonic counter per source stream (0 … 2^53-1), so a delayed recovery can never
-    /// close a newer problem. Needs a group key.
+    /// close a newer problem.
     pub source_sequence: Option<u64>,
 }
 
 impl Message {
-    /// A message with this text and nothing else set.
+    /// A message with this text and nothing else set. For a title-only message use
+    /// `Message::default().title("…")`.
     pub fn new(message: impl Into<String>) -> Self {
         Message {
             message: message.into(),
@@ -411,7 +420,7 @@ impl Message {
         self
     }
 
-    /// Adds a button (at most 3, in display order), e.g. `.action("Call", "tel:+15550134")`.
+    /// Adds a button (up to 3, in display order), e.g. `.action("Call", "tel:+15550134")`.
     pub fn action(mut self, title: impl Into<String>, url: impl Into<String>) -> Self {
         self.actions.push(Action::new(title, url));
         self
@@ -423,13 +432,13 @@ impl Message {
         self
     }
 
-    /// Sets the push lifetime in seconds (60–86400).
+    /// Sets the push lifetime in seconds (60–86400; the server clamps other values).
     pub fn ttl_seconds(mut self, ttl_seconds: u32) -> Self {
         self.ttl_seconds = Some(ttl_seconds);
         self
     }
 
-    /// Sets the monotonic source sequence (needs a group key).
+    /// Sets the monotonic source sequence.
     pub fn source_sequence(mut self, source_sequence: u64) -> Self {
         self.source_sequence = Some(source_sequence);
         self
@@ -498,9 +507,53 @@ pub struct Accepted {
     /// When the server accepted it (the first time, for a duplicate), as RFC 3339.
     #[serde(default)]
     pub received_at: String,
+    /// What the server corrected to accept the message (a title shortened, an invalid URL left
+    /// out, `urgent` lowered to `high`, …); empty when nothing. Not errors: the message was
+    /// stored. Log them, or set [`HonkBuilder::on_warnings`](crate::HonkBuilder::on_warnings).
+    #[serde(default, deserialize_with = "lenient_warnings")]
+    pub warnings: Vec<Warning>,
+}
+
+/// One correction the server made to accept a message (`202 warnings[]`). Displays as
+/// `field code: message`, e.g. `title truncated: shortened to 160 characters`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize)]
+#[non_exhaustive]
+pub struct Warning {
+    /// The field it concerns: `title`, `metadata.order`, `actions[1].url`, …
+    #[serde(default)]
+    pub field: String,
+    /// `truncated`, `normalized`, `ignored`, `clamped`, `downgraded` or `hashed` (kept as sent,
+    /// so codes added later come through too).
+    #[serde(default)]
+    pub code: String,
+    /// What was wrong and what was done (English, for logs).
+    #[serde(default)]
+    pub message: String,
+}
+
+impl fmt::Display for Warning {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} {}", self.field, self.code)?;
+        if !self.message.is_empty() {
+            write!(f, ": {}", self.message)?;
+        }
+        Ok(())
+    }
+}
+
+/// `warnings` that are missing, `null` or unreadable are no warnings: they never fail a send
+/// that the server accepted.
+fn lenient_warnings<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<Warning>, D::Error> {
+    let value = serde_json::Value::deserialize(d)?;
+    Ok(serde_json::from_value(value).unwrap_or_default())
 }
 
 impl Accepted {
+    /// Whether the server corrected anything ([`warnings`](Accepted::warnings) is not empty).
+    pub fn has_warnings(&self) -> bool {
+        !self.warnings.is_empty()
+    }
+
     /// [`received_at`](Accepted::received_at) as a [`SystemTime`], when it parses.
     pub fn received_at_time(&self) -> Option<SystemTime> {
         crate::time::parse_rfc3339(&self.received_at)
